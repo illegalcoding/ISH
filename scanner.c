@@ -720,7 +720,7 @@ int main(int argc, char** argv) {
 	// start watchdog
 	pthread_t watchdog_thread;
 	int watchdog_thread_ret = pthread_create(&watchdog_thread, NULL, block_watchdog, NULL);
-	for(int i = 0; i<threads_possible; i++) { // not i<=starts_counter cause we increment after the last one
+	for(int i = 0; i<threads_possible; i++) {
 		char start_ip_resolved[16];
 		resolve_ip(starts[i], start_ip_resolved);
 		char end_ip_resolved[16];

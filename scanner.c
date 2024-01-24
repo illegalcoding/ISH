@@ -45,7 +45,6 @@
 #define TRACE_WARNING(STR) fprintf(stderr,"Warning: %s\n",STR);
 #define TRACE_DEBUG(STR) fprintf(stderr,"Debug: %s\n",STR);
 #define TRACE_MESSAGE(STR) fprintf(stdout,"%s\n",STR);
-/* Warning: MAX_THREADS MUST be a power of 2. */
 #define MAX_THREADS 100
 typedef uint32_t u32;
 typedef uint16_t u16;

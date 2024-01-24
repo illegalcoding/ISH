@@ -43,7 +43,7 @@
 
 #define TRACE_ERROR(STR) fprintf(stderr,"error: %s\n",STR);
 #define TRACE_DEBUG(STR) fprintf(stderr,"debug: %s\n",STR);
-#define MAX_THREADS 50
+#define MAX_THREADS 100
 typedef uint32_t u32;
 typedef uint16_t u16;
 typedef uint64_t u64;
@@ -74,6 +74,7 @@ struct http_request {
 	char* end; // "\r\n\r\n"
 };
 struct site_data {
+	u32 magic; // = 0x5173B10C (SITEBLOC)
 	u32 ip;
 	u16 status_code;
 	u64 payload_size;
@@ -118,7 +119,7 @@ int find_free_block_index() {
 void debug_block(struct site_data_block* block) {
 	fprintf(stderr,"\ndebug block\n");
 	fprintf(stderr,"in_use: %d\n", block->in_use);
-	fprintf(stderr,"data.ip: %lu\n", block->data.ip);
+	fprintf(stderr,"data.ip: %u\n", block->data.ip);
 	fprintf(stderr,"data.status_code: %d\n", block->data.status_code);
 	fprintf(stderr,"data.payload_size: %llu\n", block->data.payload_size);
 	fprintf(stderr,"data.payload: %s\n", block->data.payload);
@@ -153,41 +154,44 @@ void *block_watchdog(void* thread_data) {
 }
 void clear_block(struct site_data_block* block) {
 	/* TRACE_DEBUG("clearing block"); */
-	pthread_mutex_lock(&block->lock);
+	pthread_mutex_lock(&(block->lock));
 	if(block->in_use != 1) {
 		TRACE_DEBUG("This shouldn't happen");
 		return;
 	}
-	write_data(&block->data);		
+	write_data(&(block->data));		
 	/* TRACE_DEBUG("free line 115"); */
-	/* fprintf(stderr, "block.data.ip: %lu\n", block->data.ip); */
+	/* fprintf(stderr, "block.data.ip: %u\n", block->data.ip); */
 	/* fprintf(stderr, "block.data.status_code: %d\n", block->data.status_code); */
 	/* fprintf(stderr, "block.data.payload_size: %llu\n", block->data.payload_size); */
 	/* fprintf(stderr, "block.data.payload: %s", block.data.payload); */
 	TRACE_DEBUG("free payload");
 	free(block->data.payload);
 	block->in_use = 0;
-	pthread_mutex_unlock(&block->lock);
+	pthread_mutex_unlock(&(block->lock));
 	/* TRACE_DEBUG("block clear"); */
 }
 /*
 struct file_block {
-	u32 ip; // OFFSET 0
-	u16 status_code; // OFFSET 4 
-	u64 payload_size; // OFFSET 6
-	char* payload; // OFFSET 14
+	u32 magic; // OFFSET 0
+	u32 ip; // OFFSET 4
+	u16 status_code; // OFFSET 8 
+	u64 payload_size; // OFFSET 10
+	char* payload; // OFFSET 18
 }
 */
 void write_data(struct site_data* data) {
 	if(file_out_open) {
 		int rv = 0;
 		TRACE_DEBUG("fwrite 1")
-		rv = fwrite(&(data->ip), sizeof(u32), 1, file_out);
+		rv = fwrite(&(data->magic),sizeof(u32),1,file_out); // SITEBLOC magic
 		TRACE_DEBUG("fwrite 2")
-		rv = fwrite(&(data->status_code), sizeof(u16), 1, file_out);  	
+		rv = fwrite(&(data->ip), sizeof(u32), 1, file_out);
 		TRACE_DEBUG("fwrite 3")
-		rv = fwrite(&(data->payload_size), sizeof(u64), 1, file_out);  	
+		rv = fwrite(&(data->status_code), sizeof(u16), 1, file_out);  	
 		TRACE_DEBUG("fwrite 4")
+		rv = fwrite(&(data->payload_size), sizeof(u64), 1, file_out);  	
+		TRACE_DEBUG("fwrite 5")
 		rv = fwrite(data->payload, data->payload_size, 1, file_out);
 	} else {
 		TRACE_ERROR("Output file not open.");
@@ -216,7 +220,7 @@ void *scan_range(void* rangeptr) {
 	char end_ip_resolved[16];
 	resolve_ip(start_ip,start_ip_resolved);
 	resolve_ip(end_ip,end_ip_resolved);
-	/* fprintf(stderr, "started thread, start_ip: %lu = %s, end_ip: %lu = %s\n", start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
+	/* fprintf(stderr, "started thread, start_ip: %u = %s, end_ip: %u = %s\n", start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
 	int counter = 0;
 	int local_do_exit = 0;
 	while(!do_exit && !local_do_exit) {
@@ -233,7 +237,7 @@ void *scan_range(void* rangeptr) {
 		clock_gettime(CLOCK_REALTIME, &ts_start);
 		char resolved_ip[16];
 		resolve_ip(ip,resolved_ip);
-		/* fprintf(stderr,"scanning ip: %s\n", resolved_ip); */
+		fprintf(stderr,"scanning ip: %s\n", resolved_ip);
 		struct http_request request;
 		request = make_request(resolved_ip);
 		/* SEND REQUEST */
@@ -467,7 +471,7 @@ void *scan_range(void* rangeptr) {
 		if(firstbuffersize == -1) {
 			TRACE_DEBUG("Something ain't right...");
 			counter++;
-			close(sockfd);
+			/* close(sockfd); */
 			continue;
 		}
 		int statuslineend = -1;
@@ -495,7 +499,7 @@ void *scan_range(void* rangeptr) {
 			}
 		}
 		if(failed_to_find_status) {
-			close(sockfd);
+			/* close(sockfd); */
 			continue; // no counter because we already did them
 		}
 		char statusline[statuslineend+1];
@@ -527,12 +531,13 @@ void *scan_range(void* rangeptr) {
 			/* Not 200, no need to save */
 			free(comb_front); // We can free this cause we don't need it anymore
 			counter++;
-			close(sockfd);
+			/* close(sockfd); */
 			continue;
 		}
 		/* WRITE RESPONSE */
 		/* Populate site_data */
 		struct site_data site;
+		site.magic = 0x5173B10C;
 		site.ip = ip;
 		site.status_code = 200;
 		site.payload_size = comb_front_size;
@@ -571,6 +576,10 @@ void resolve_ip(u32 ip, char* output) {
 	uint8_t byte4 = ip&0xff;
 	snprintf(output, 15, "%d.%d.%d.%d", byte1, byte2, byte3, byte4);
 }
+/* This was copied from python code where thread 0 in the array was
+ * the watchdog thread. I have no idea how this still works here,
+ * but somehow, it does.
+ */
 void split_range(u32 start_ip, u32 end_ip, int thread_count) {
 	if(end_ip < start_ip) {
 		TRACE_ERROR("end_ip < start_ip");
@@ -579,9 +588,9 @@ void split_range(u32 start_ip, u32 end_ip, int thread_count) {
 	int ip_range = end_ip - start_ip;
 	fprintf(stderr,"ip_range: %d\n", ip_range);	
 	double d_split_ip_range = (double) ip_range / thread_count; // maybe we should just use MAX_THREADS
-	int split_ip_range = floor(d_split_ip_range); // work like python //
+	int split_ip_range = floor(d_split_ip_range); // work like python's //
 	fprintf(stderr, "split_ip_range: %d\n", split_ip_range);
-	for(int i = 1; i<thread_count+1; i++) { // prob could be i<=thread_count, start at 1 to skip thread0
+	for(int i = 1; i<thread_count+1; i++) { // prob could be i<=thread_count
 		fprintf(stderr, "i: %d\n", i);
 		if(i == 1) {
 			int start = start_ip;
@@ -606,14 +615,8 @@ void split_range(u32 start_ip, u32 end_ip, int thread_count) {
 }
 
 int main(int argc, char** argv) {
-	/*
-	 *	0x74600000 - 116.96.0.0 to
-	 *	0x746FFFFF - 116.111.255.255
-	*/
-	/* u32 start_ip = 0xC0A83300; // 192.168.51.0 */
-	/* u32 end_ip = 0xC0A833FF; // 192.168.51.255 */
-	u32 start_ip = 0x74600000;
-	u32 end_ip = 0x746FFFFF;
+	u32 start_ip = 0xC0A83300; // 192.168.51.0
+	u32 end_ip = 0xC0A833FF; // 192.168.51.255
 	split_range(start_ip, end_ip, MAX_THREADS);
 	pthread_t threads[MAX_THREADS];
 	// init blocks
@@ -650,6 +653,8 @@ int main(int argc, char** argv) {
 	// start watchdog
 	pthread_t watchdog_thread;
 	int watchdog_thread_ret = pthread_create(&watchdog_thread, NULL, block_watchdog, NULL);
+	// start all threads, this is quite slow as we have to wait
+	// for each one to start, otherwise range gets overwritten
 	for(int i = 0; i<starts_counter; i++) { // not i<=starts_counter cause we increment after the last one
 		char start_ip_resolved[16];
 		resolve_ip(starts[i], start_ip_resolved);
@@ -659,7 +664,7 @@ int main(int argc, char** argv) {
 		struct ip_range range;
 		range.start_ip = starts[i];
 		range.end_ip = ends[i];
-		/* fprintf(stderr, "starting thread, start_ip: %lu = %s, end_ip: %lu = %s\n", start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
+		/* fprintf(stderr, "starting thread, start_ip: %u = %s, end_ip: %u = %s\n", start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
 		pthread_create(&threads[i],NULL,scan_range,(void*)&range);
 		while(!thread_started) {
 			/* TRACE_DEBUG("WAIT THREAD START"); */
@@ -670,7 +675,7 @@ int main(int argc, char** argv) {
 	}
 	while(threads_done < MAX_THREADS) {
 		fprintf(stderr, "threads_done: %d\n", threads_done);
-		usleep(1000*1000*5); // sleep 5s
+		usleep(1000*1000*2.5); // sleep 2.5s
 	}
 	for(int i = 0; i<MAX_THREADS; i++) {
 		fprintf(stderr, "joining %d\n", i);

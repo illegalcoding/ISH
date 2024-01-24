@@ -41,8 +41,11 @@
 #include <errno.h>
 #include <signal.h>
 
-#define TRACE_ERROR(STR) fprintf(stderr,"error: %s\n",STR);
-#define TRACE_DEBUG(STR) fprintf(stderr,"debug: %s\n",STR);
+#define TRACE_ERROR(STR) fprintf(stderr,"ERROR: %s\n",STR);
+#define TRACE_WARNING(STR) fprintf(stderr,"Warning: %s\n",STR);
+#define TRACE_DEBUG(STR) fprintf(stderr,"Debug: %s\n",STR);
+#define TRACE_MESSAGE(STR) fprintf(stdout,"%s\n",STR);
+/* Warning: MAX_THREADS MUST be a power of 2. */
 #define MAX_THREADS 100
 typedef uint32_t u32;
 typedef uint16_t u16;
@@ -56,6 +59,8 @@ int do_exit = 0;
 int all_dumped = 0;
 int thread_started = 0;
 int threads_done = 0;
+int threads_possible = MAX_THREADS;
+int threads_running = 0;
 #define REQUEST_LINE "GET / HTTP/1.1\r\n"
 #define HOST_HEADER "Host: "
 #define END "\r\n\r\n"
@@ -92,7 +97,7 @@ struct site_data_block blocks[NUM_BLOCKS]; // Create 100 blocks
 struct http_request make_request(char* ip);
 void *scan_range(void* rangeptr);
 void resolve_ip(u32 ip, char* output);
-void split_range(u32 start_ip, u32 end_ip, int thread_count);
+int split_range(u32 start_ip, u32 end_ip);
 void init_blocks();
 void* block_watchdog();
 void clear_block(struct site_data_block* block);
@@ -100,7 +105,7 @@ void write_data(struct site_data* data);
 
 void init_blocks() {
 	for(int i = 0; i < NUM_BLOCKS; i++) {
-		fprintf(stderr, "init block %d\n", i);
+		/* fprintf(stderr, "init block %d\n", i); */
 		blocks[i].in_use = 0;
 	}
 }
@@ -131,12 +136,12 @@ void *block_watchdog(void* thread_data) {
 		for(int i = 0; i<NUM_BLOCKS; i++) {
 			if(blocks[i].in_use == 1) {
 				fprintf(stderr, "clear block called on block %d\n", i);
-				debug_block(&blocks[i]);
+				/* debug_block(&blocks[i]); */
 				clear_block(&blocks[i]);	
 			}
 		}
 		if(do_exit == 1) {
-			TRACE_DEBUG("watchdog runfinal")
+			/* TRACE_DEBUG("watchdog runfinal") */
 			for(int i = 0; i<NUM_BLOCKS; i++) {
 				if(blocks[i].in_use == 1) {
 					fprintf(stderr, "clear block called on block %d\n", i);
@@ -146,7 +151,8 @@ void *block_watchdog(void* thread_data) {
 			all_dumped = 1;
 			watchdog_do_exit = 1;
 			fclose(file_out);
-			TRACE_DEBUG("watchdog done");	
+			/* TRACE_DEBUG("watchdog done"); */	
+			TRACE_MESSAGE("Done!");
 			break;
 		}
 		usleep(50000);
@@ -165,7 +171,7 @@ void clear_block(struct site_data_block* block) {
 	/* fprintf(stderr, "block.data.status_code: %d\n", block->data.status_code); */
 	/* fprintf(stderr, "block.data.payload_size: %llu\n", block->data.payload_size); */
 	/* fprintf(stderr, "block.data.payload: %s", block.data.payload); */
-	TRACE_DEBUG("free payload");
+	/* TRACE_DEBUG("free payload"); */
 	free(block->data.payload);
 	block->in_use = 0;
 	pthread_mutex_unlock(&(block->lock));
@@ -183,15 +189,15 @@ struct file_block {
 void write_data(struct site_data* data) {
 	if(file_out_open) {
 		int rv = 0;
-		TRACE_DEBUG("fwrite 1")
+		/* TRACE_DEBUG("fwrite 1") */
 		rv = fwrite(&(data->magic),sizeof(u32),1,file_out); // SITEBLOC magic
-		TRACE_DEBUG("fwrite 2")
+		/* TRACE_DEBUG("fwrite 2") */
 		rv = fwrite(&(data->ip), sizeof(u32), 1, file_out);
-		TRACE_DEBUG("fwrite 3")
+		/* TRACE_DEBUG("fwrite 3") */
 		rv = fwrite(&(data->status_code), sizeof(u16), 1, file_out);  	
-		TRACE_DEBUG("fwrite 4")
+		/* TRACE_DEBUG("fwrite 4") */
 		rv = fwrite(&(data->payload_size), sizeof(u64), 1, file_out);  	
-		TRACE_DEBUG("fwrite 5")
+		/* TRACE_DEBUG("fwrite 5") */
 		rv = fwrite(data->payload, data->payload_size, 1, file_out);
 	} else {
 		TRACE_ERROR("Output file not open.");
@@ -212,10 +218,12 @@ struct ip_range {
 	u32 end_ip;
 };
 void *scan_range(void* rangeptr) {
+	int tid;
+	tid = threads_running;
+	threads_running++;
 	struct ip_range range = *(struct ip_range*)rangeptr; 
 	u32 start_ip = range.start_ip;
 	u32 end_ip = range.end_ip;
-	thread_started = 1;
 	char start_ip_resolved[16];
 	char end_ip_resolved[16];
 	resolve_ip(start_ip,start_ip_resolved);
@@ -223,21 +231,29 @@ void *scan_range(void* rangeptr) {
 	/* fprintf(stderr, "started thread, start_ip: %u = %s, end_ip: %u = %s\n", start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
 	int counter = 0;
 	int local_do_exit = 0;
+	free(rangeptr);
+	thread_started = 1;
 	while(!do_exit && !local_do_exit) {
 		/* TRACE_DEBUG("scan_range active"); */
 		u32 ip = start_ip+counter;
 		if(ip > end_ip) {
 			/* TRACE_DEBUG("scan_range done"); */
 			threads_done++;
+			threads_running--;
 			local_do_exit = 1;
 			return 0;
+		}
+		if(ip == 0) {
+			fprintf(stderr,"Warning: tid %d tried scanning 0.0.0.0, bailing out.\nTRACE:\nip: %u, start_ip: %u, end_ip: %u, counter: %d, rangeptr: %p\n", tid, ip, start_ip, end_ip, counter, rangeptr);
+			threads_running--;
+			return -1;
 		}
 		int timedout = 0;
 		struct timespec ts_start;
 		clock_gettime(CLOCK_REALTIME, &ts_start);
 		char resolved_ip[16];
 		resolve_ip(ip,resolved_ip);
-		fprintf(stderr,"scanning ip: %s\n", resolved_ip);
+		fprintf(stderr,"tid %d scanning ip: %s\n", tid, resolved_ip);
 		struct http_request request;
 		request = make_request(resolved_ip);
 		/* SEND REQUEST */
@@ -294,7 +310,7 @@ void *scan_range(void* rangeptr) {
 			usleep(1000*50); // sleep 50ms
 		}
 		if(timedout) {
-			TRACE_DEBUG("Send 1 timed out");
+			/* TRACE_DEBUG("Send 1 timed out"); */
 			counter++; // skip this ip
 			close(sockfd);
 			continue; // go to next ip
@@ -314,7 +330,7 @@ void *scan_range(void* rangeptr) {
 			usleep(1000*50); // sleep 50ms
 		}
 		if(timedout) {
-			TRACE_DEBUG("Send 2 timed out");
+			/* TRACE_DEBUG("Send 2 timed out"); */
 			counter++; // skip this ip
 			close(sockfd);
 			continue; // go to next ip
@@ -334,7 +350,7 @@ void *scan_range(void* rangeptr) {
 			usleep(1000*50); // sleep 50ms
 		}
 		if(timedout) {
-			TRACE_DEBUG("Send 3 timed out");
+			/* TRACE_DEBUG("Send 3 timed out"); */
 			counter++; // skip this ip
 			close(sockfd);
 			continue; // go to next ip
@@ -354,7 +370,7 @@ void *scan_range(void* rangeptr) {
 			usleep(1000*50); // sleep 50ms
 		}
 		if(timedout) {
-			TRACE_DEBUG("Send 4 timed out");
+			/* TRACE_DEBUG("Send 4 timed out"); */
 			counter++; // skip this ip
 			close(sockfd);
 			continue; // go to next ip
@@ -427,6 +443,12 @@ void *scan_range(void* rangeptr) {
 					comb_front_size=comb_front_size-1+buffersize;	
 					swap = NULL;
 				}
+				/* TODO: This section relies on the assumption that there is a trailing CRLF
+				 * at the end of the response. This may or may not be true, all the websites
+				 * I tested had it, but I'm not sure if it's in the spec. What definitely -is-
+				 * in the spec, is the Content-Length header, and we should use that to determine
+				 * if the response is over.
+				 */
 				/* fprintf(stderr, "valread: %d\n", valread); */
 				/* fprintf(stderr, "buffer: %s", buffer); */
 				/* if(readcount > 1) */
@@ -435,9 +457,9 @@ void *scan_range(void* rangeptr) {
 				char crlfcomp[4] = "\r\n\r\n";
 				char last4bytes[4];
 				memcpy(last4bytes, &buffer[count-4], 4);
-				for(int i = 0; i<4; i++) {
-					/* fprintf(stderr, "last4bytes[%d]: %02X\n", i, last4bytes[i]); */
-				}
+				/* for(int i = 0; i<4; i++) { */
+				/* 	fprintf(stderr, "last4bytes[%d]: %02X\n", i, last4bytes[i]); */
+				/* } */
 				int twocrlf = strncmp(last4bytes, crlfcomp, 4);
 				
 				if(twocrlf == 0) {
@@ -507,13 +529,14 @@ void *scan_range(void* rangeptr) {
 		strncpy(statusline, firstbuffer, statuslineend); // dont include CR, make room for \0
 		/* fprintf(stderr, "statusline: %s\n", statusline); */
 		/* TRACE_DEBUG("free line 306"); */
+		char status_code[4];
+		memset(status_code,0,4);
+		strncpy(status_code,&statusline[9],3);
+
 		free(firstbuffer);
-		char statuscode[7];
-		memset(statuscode,0,7);
-		char okcode[] = "200 OK";
-		strncpy(statuscode,&statusline[statuslineend-6],6);
-		/* fprintf(stderr, "statuscode: %s\n", statuscode); */
-		int okresult = strcmp(statuscode,okcode);
+		char okcode[] = "200";
+		/* fprintf(stderr, "status_code: %s\n", status_code); */
+		int okresult = strcmp(status_code,okcode);
 		/* WE HAVE A 200 */
 		if(okresult == 0) {
 			char resolved_ok_ip[16];
@@ -576,49 +599,93 @@ void resolve_ip(u32 ip, char* output) {
 	uint8_t byte4 = ip&0xff;
 	snprintf(output, 15, "%d.%d.%d.%d", byte1, byte2, byte3, byte4);
 }
-/* This was copied from python code where thread 0 in the array was
- * the watchdog thread. I have no idea how this still works here,
- * but somehow, it does.
- */
-void split_range(u32 start_ip, u32 end_ip, int thread_count) {
-	if(end_ip < start_ip) {
-		TRACE_ERROR("end_ip < start_ip");
-		exit(1);
+int split_range(u32 start_ip, u32 end_ip) {
+	if(!(end_ip > start_ip)) {
+		TRACE_ERROR("end_ip <= start_ip");
+		return -1;
 	}
-	int ip_range = end_ip - start_ip;
-	fprintf(stderr,"ip_range: %d\n", ip_range);	
-	double d_split_ip_range = (double) ip_range / thread_count; // maybe we should just use MAX_THREADS
-	int split_ip_range = floor(d_split_ip_range); // work like python's //
-	fprintf(stderr, "split_ip_range: %d\n", split_ip_range);
-	for(int i = 1; i<thread_count+1; i++) { // prob could be i<=thread_count
-		fprintf(stderr, "i: %d\n", i);
-		if(i == 1) {
-			int start = start_ip;
-			int end = start + split_ip_range;
-			fprintf(stderr, "i: %d, start: %X, end: %X\n" , i, start, end);
+	u32 ip_range = end_ip - start_ip;
+	if(!(ip_range>MAX_THREADS)) {
+		TRACE_ERROR("ip_range<=MAX_THREADS");
+		return -1;
+	}
+	u32 split_ip_range = floor((int)(ip_range/MAX_THREADS));
+	/* fprintf(stderr, "split_ip_range: %u\n", split_ip_range); */
+	if((split_ip_range * MAX_THREADS) > ip_range) {
+		/* TRACE_WARNING("split_ip_range*MAX_THREADS > ip_range"); */
+		/* fprintf(stderr,"ip_range - (split_ip_range*MAX_THREADS) = %d\n", ip_range - (split_ip_range*MAX_THREADS)); */
+		/* fprintf(stderr,"ip_range: %u, split_ip_range*MAX_THREADS: %u\n", ip_range, split_ip_range*MAX_THREADS); */
+	} else if((split_ip_range * MAX_THREADS) < ip_range) {
+		/* TRACE_WARNING("split_ip_range*MAX_THREADS < ip_range"); */
+		/* fprintf(stderr,"ip_range: %u, split_ip_range*MAX_THREADS: %u\n", ip_range, split_ip_range*MAX_THREADS); */
+	} else {
+		/* TRACE_DEBUG("split_ip_range*MAX_THREADS == ip_range"); */
+	}
+	u32 start = start_ip;
+	u32 end = 0;
+	u32 last_end = 0;
+	for(int i = 0; i<MAX_THREADS; i++) {
+		if(i == 0) {
+			start = start_ip;
+			end = start + split_ip_range;
 			starts[starts_counter] = start;
 			ends[ends_counter] = end;
 			starts_counter++;
 			ends_counter++;
-		} else {
-			int last_index = ends_counter-1; 
-			int start = ends[last_index] + 1; // pick up where we left off
-			int end = start + split_ip_range;
-			fprintf(stderr, "i: %d, start: %X, end: %X\n" , i, start, end);
+			char start_resolved_ip[16];
+			memset(start_resolved_ip,0,16);
+			resolve_ip(start,start_resolved_ip);
+			char end_resolved_ip[16];
+			memset(end_resolved_ip,0,16);
+			resolve_ip(end,end_resolved_ip);
+			/* fprintf(stderr, "i: %d start: %s, end: %s\n", i, start_resolved_ip, end_resolved_ip); */
+			last_end = end;
+		} else {	
+			start = last_end+1;
+			end = start + split_ip_range;
+			if(end > end_ip) {
+				/* fprintf(stderr, "i: %d, start+split_ip_range>end_ip, end = end_ip\n", i); */
+				end = end_ip;
+				if(i + 1 != MAX_THREADS) {
+					/* fprintf(stderr,"i: %d, split_range stopping early\n", i); */
+					TRACE_WARNING("split_range couldn't create start and end for all threads");
+					threads_possible = i;
+					return 1;
+				}
+			}
 			starts[starts_counter] = start;
 			ends[ends_counter] = end;
 			starts_counter++;
 			ends_counter++;
-		}
-		
-	}
-}
 
+			char start_resolved_ip[16];
+			memset(start_resolved_ip,0,16);
+			resolve_ip(start,start_resolved_ip);
+			char end_resolved_ip[16];
+			memset(end_resolved_ip,0,16);
+			resolve_ip(end,end_resolved_ip);
+			/* fprintf(stderr, "i: %d start: %s, end: %s\n", i, start_resolved_ip, end_resolved_ip); */
+			last_end = end;
+		}
+	}
+	return 0;
+}
 int main(int argc, char** argv) {
 	u32 start_ip = 0xC0A83300; // 192.168.51.0
-	u32 end_ip = 0xC0A833FF; // 192.168.51.255
-	split_range(start_ip, end_ip, MAX_THREADS);
-	pthread_t threads[MAX_THREADS];
+	u32 end_ip = 0xC0A8337B; // 192.168.51.123
+	/* u32 start_ip = 0x7f000001; */
+	/* u32 end_ip = 0x7f000002; */
+
+	int split_range_rv = split_range(start_ip, end_ip);
+	if(split_range_rv < 0) {
+		TRACE_ERROR("split_range failed");
+		return -1;
+	}
+	if(split_range_rv == 1) {
+		fprintf(stderr,"Could only spawn %d threads\n", threads_possible);
+		sleep(5); // sleep for 5s so user can read the message
+	}
+	pthread_t threads[threads_possible];
 	// init blocks
 	init_blocks();
 	// init file
@@ -655,33 +722,33 @@ int main(int argc, char** argv) {
 	int watchdog_thread_ret = pthread_create(&watchdog_thread, NULL, block_watchdog, NULL);
 	// start all threads, this is quite slow as we have to wait
 	// for each one to start, otherwise range gets overwritten
-	for(int i = 0; i<starts_counter; i++) { // not i<=starts_counter cause we increment after the last one
+	for(int i = 0; i<threads_possible; i++) { // not i<=starts_counter cause we increment after the last one
 		char start_ip_resolved[16];
 		resolve_ip(starts[i], start_ip_resolved);
 		char end_ip_resolved[16];
 		resolve_ip(ends[i], end_ip_resolved);
 		/* printf("%d: start: %s\tend: %s\n",i,start_ip_resolved, end_ip_resolved); */ 
-		struct ip_range range;
-		range.start_ip = starts[i];
-		range.end_ip = ends[i];
+		struct ip_range* rangeptr = malloc(sizeof(struct ip_range));
+		rangeptr->start_ip = starts[i];
+		rangeptr->end_ip = ends[i];
 		/* fprintf(stderr, "starting thread, start_ip: %u = %s, end_ip: %u = %s\n", start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
-		pthread_create(&threads[i],NULL,scan_range,(void*)&range);
+		pthread_create(&threads[i],NULL,scan_range,(void*)rangeptr);
 		while(!thread_started) {
 			/* TRACE_DEBUG("WAIT THREAD START"); */
-			usleep(50000);
+			usleep(50000); // wait 50ms
 		}
 		thread_started = 0;
 
 	}
-	while(threads_done < MAX_THREADS) {
-		fprintf(stderr, "threads_done: %d\n", threads_done);
-		usleep(1000*1000*2.5); // sleep 2.5s
+	while(((threads_done < threads_possible)) && threads_running != 0 && (do_exit != 1)) {
+		fprintf(stderr, "threads_done: %d, threads_running: %d\n", threads_done, threads_running);
+		sleep(1); // sleep 1s
 	}
-	for(int i = 0; i<MAX_THREADS; i++) {
-		fprintf(stderr, "joining %d\n", i);
+	for(int i = 0; i<threads_possible; i++) {
+		/* fprintf(stderr, "joining %d\n", i); */
 		pthread_join(threads[i], NULL);
 	}
-	TRACE_DEBUG("ALL JOINED");
+	/* TRACE_DEBUG("ALL JOINED"); */
 	do_exit = 1;
 	pthread_join(watchdog_thread, NULL);
 	return 0;

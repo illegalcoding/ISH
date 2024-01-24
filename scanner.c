@@ -130,7 +130,7 @@ void debug_block(struct site_data_block* block) {
 	fprintf(stderr,"data.payload: %s\n", block->data.payload);
 	fprintf(stderr,"\nend debug block\n");
 }
-void *block_watchdog(void* thread_data) {
+void* block_watchdog(void* thread_data) {
 	while(!watchdog_do_exit) {
 		/* TRACE_DEBUG("WATCHDOG ACTIVE"); */
 		for(int i = 0; i<NUM_BLOCKS; i++) {
@@ -157,6 +157,7 @@ void *block_watchdog(void* thread_data) {
 		}
 		usleep(50000);
 	}
+	return 0;
 }
 void clear_block(struct site_data_block* block) {
 	/* TRACE_DEBUG("clearing block"); */
@@ -217,7 +218,7 @@ struct ip_range {
 	u32 start_ip;
 	u32 end_ip;
 };
-void *scan_range(void* rangeptr) {
+void* scan_range(void* rangeptr) {
 	int tid;
 	tid = threads_running;
 	threads_running++;
@@ -246,7 +247,7 @@ void *scan_range(void* rangeptr) {
 		if(ip == 0) {
 			fprintf(stderr,"Warning: tid %d tried scanning 0.0.0.0, bailing out.\nTRACE:\nip: %u, start_ip: %u, end_ip: %u, counter: %d, rangeptr: %p\n", tid, ip, start_ip, end_ip, counter, rangeptr);
 			threads_running--;
-			return -1;
+			return 0;
 		}
 		int timedout = 0;
 		struct timespec ts_start;
@@ -589,6 +590,7 @@ void *scan_range(void* rangeptr) {
 		seconds_spent = (ts_end.tv_sec - ts_start.tv_sec) + (ts_end.tv_nsec - ts_start.tv_nsec) / (double) 1e9;
 		/* fprintf(stderr,"check_ip took %fms\n", seconds_spent*1000); */
 	}
+	return 0;
 }
 
 

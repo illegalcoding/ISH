@@ -1,5 +1,5 @@
 /*
- * parser.c, v0.1 (2024-01-24T17:53:59+01:00)
+ * parser.c, v1.0 (2024-01-24T21:27:30+01:00)
  *
  * BSD 2-Clause License
  * 
@@ -36,7 +36,7 @@
 #include <math.h>
 #include <json-c/json.h> // json-c
 
-#define FILENAME "output.sitedata.withmagic"
+#define FILENAME "output.sitedata"
 #define MAGIC 0x5173B10C // SITEBLOC
 #define TRACE_ERROR(STR) fprintf(stderr,"error: %s\n",STR);
 #define TRACE_DEBUG(STR) fprintf(stderr,"debug: %s\n",STR);

@@ -56,7 +56,6 @@ int ends_counter = 0;
 int watchdog_do_exit = 0;
 int do_exit = 0;
 int all_dumped = 0;
-int thread_started = 0;
 int threads_done = 0;
 int threads_possible = MAX_THREADS;
 int threads_running = 0;
@@ -134,7 +133,7 @@ void* block_watchdog(void* thread_data) {
 		/* TRACE_DEBUG("WATCHDOG ACTIVE"); */
 		for(int i = 0; i<NUM_BLOCKS; i++) {
 			if(blocks[i].in_use == 1) {
-				fprintf(stderr, "clear block called on block %d\n", i);
+				/* fprintf(stderr, "clear block called on block %d\n", i); */
 				/* debug_block(&blocks[i]); */
 				clear_block(&blocks[i]);	
 			}
@@ -143,7 +142,7 @@ void* block_watchdog(void* thread_data) {
 			/* TRACE_DEBUG("watchdog runfinal") */
 			for(int i = 0; i<NUM_BLOCKS; i++) {
 				if(blocks[i].in_use == 1) {
-					fprintf(stderr, "clear block called on block %d\n", i);
+					/* fprintf(stderr, "clear block called on block %d\n", i); */
 					clear_block(&blocks[i]);	
 				}
 			}
@@ -232,7 +231,6 @@ void* scan_range(void* rangeptr) {
 	int counter = 0;
 	int local_do_exit = 0;
 	free(rangeptr);
-	thread_started = 1;
 	while(!do_exit && !local_do_exit) {
 		/* TRACE_DEBUG("scan_range active"); */
 		u32 ip = start_ip+counter;
@@ -248,6 +246,7 @@ void* scan_range(void* rangeptr) {
 			threads_running--;
 			return 0;
 		}
+		/* Our IP is good, we can scan it */
 		int timedout = 0;
 		struct timespec ts_start;
 		clock_gettime(CLOCK_REALTIME, &ts_start);
@@ -683,7 +682,7 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 	if(split_range_rv == 1) {
-		fprintf(stderr,"Could only spawn %d threads\n", threads_possible);
+		fprintf(stderr,"Could only spawn %d threads, starting in 5 seconds...\n", threads_possible);
 		sleep(5); // sleep for 5s so user can read the message
 	}
 	pthread_t threads[threads_possible];
@@ -721,8 +720,6 @@ int main(int argc, char** argv) {
 	// start watchdog
 	pthread_t watchdog_thread;
 	int watchdog_thread_ret = pthread_create(&watchdog_thread, NULL, block_watchdog, NULL);
-	// start all threads, this is quite slow as we have to wait
-	// for each one to start, otherwise range gets overwritten
 	for(int i = 0; i<threads_possible; i++) { // not i<=starts_counter cause we increment after the last one
 		char start_ip_resolved[16];
 		resolve_ip(starts[i], start_ip_resolved);
@@ -734,12 +731,6 @@ int main(int argc, char** argv) {
 		rangeptr->end_ip = ends[i];
 		/* fprintf(stderr, "starting thread, start_ip: %u = %s, end_ip: %u = %s\n", start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
 		pthread_create(&threads[i],NULL,scan_range,(void*)rangeptr);
-		while(!thread_started) {
-			/* TRACE_DEBUG("WAIT THREAD START"); */
-			usleep(50000); // wait 50ms
-		}
-		thread_started = 0;
-
 	}
 	while(((threads_done < threads_possible)) && threads_running != 0 && (do_exit != 1)) {
 		fprintf(stderr, "threads_done: %d, threads_running: %d\n", threads_done, threads_running);

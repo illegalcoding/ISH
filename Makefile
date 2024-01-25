@@ -1,4 +1,4 @@
-CFLAGS = -O2 -pipe -std=c11 -ggdb -pthread -lm
+CFLAGS = -fdiagnostics-color -O2 -pipe -std=c11 -ggdb -pthread -lm
 all:
-	$(CC) $(CFLAGS) scanner.c -o scanner
+	$(CC) $(CFLAGS) ish.c -o ish
 	$(CC) $(CFLAGS) -o parser parser.c `pkg-config --cflags --libs json-c`

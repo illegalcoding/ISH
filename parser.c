@@ -33,6 +33,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <sys/stat.h>
 #include <json-c/json.h> // json-c
 
 #define FILENAME "output.sitedata"
@@ -217,6 +218,11 @@ void resolve_ip(u32 ip, char* output) {
 
 
 int main(int argc, char** argv) {
+	struct stat st;
+	if(stat(FILENAME, &st) != 0) {
+		TRACE_MESSAGE("No output.sitedata file, run ISH first");
+		return 1;
+	}
 	// open
 	FILE* file = fopen(FILENAME, "rb");	
 	// get size

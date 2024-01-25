@@ -26,7 +26,6 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include "json_object.h"
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -39,7 +38,9 @@
 #define FILENAME "output.sitedata"
 #define MAGIC 0x5173B10C // SITEBLOC
 #define TRACE_ERROR(STR) fprintf(stderr,"error: %s\n",STR);
+#define TRACE_WARNING(STR) fprintf(stderr,"Warning: %s\n",STR);
 #define TRACE_DEBUG(STR) fprintf(stderr,"debug: %s\n",STR);
+#define TRACE_MESSAGE(STR) fprintf(stdout,"%s\n",STR);
 #define MAGIC_OFFSET 0
 #define IP_OFFSET 4
 #define STATUS_OFFSET 8
@@ -223,7 +224,10 @@ int main(int argc, char** argv) {
 	fseek(file, 0, SEEK_END);
 	fsz = ftell(file);
 	rewind(file);
-	
+	if(fsz == 0) {
+		TRACE_MESSAGE("No data in output.sitedata");
+		return 0;
+	}
 	// allocate memory
 	u8* full_buffer = malloc(fsz+1);
 	memset(full_buffer,0,fsz+1);	

@@ -208,11 +208,13 @@ void write_data(struct site_data* data) {
 
 struct http_request make_request(char* ip) {
 	struct http_request request;
+
 	request.request_line = REQUEST_LINE;
 	request.host_header = HOST_HEADER;
 	request.host_ip_str = ip;
 	request.iplen = strlen(ip);
-	request.end = END; 
+	request.end = END;
+
 	return request;
 }
 struct ip_range {
@@ -222,10 +224,13 @@ struct ip_range {
 };
 void* scan_range(void* rangeptr) {
 	threads_running++;
-	struct ip_range range = *(struct ip_range*)rangeptr; 
+
+	struct ip_range range = *(struct ip_range*)rangeptr;
+
 	u32 start_ip = range.start_ip;
 	u32 end_ip = range.end_ip;
 	int tid = range.tid;
+
 	char start_ip_resolved[16];
 	char end_ip_resolved[16];
 	resolve_ip(start_ip,start_ip_resolved);
@@ -233,7 +238,9 @@ void* scan_range(void* rangeptr) {
 	/* fprintf(stderr, "started thread, start_ip: %u = %s, end_ip: %u = %s\n", start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
 	int counter = 0;
 	int local_do_exit = 0;
+
 	free(rangeptr);
+
 	while(!do_exit && !local_do_exit) {
 		/* TRACE_DEBUG("scan_range active"); */
 		u32 ip = start_ip+counter;
@@ -253,9 +260,11 @@ void* scan_range(void* rangeptr) {
 		int timedout = 0;
 		struct timespec ts_start;
 		clock_gettime(CLOCK_REALTIME, &ts_start);
+
 		char resolved_ip[16];
 		resolve_ip(ip,resolved_ip);
 		fprintf(stderr,"thread %d scanning ip: %s\n", tid, resolved_ip);
+
 		struct http_request request;
 		request = make_request(resolved_ip);
 		/* SEND REQUEST */
@@ -272,18 +281,22 @@ void* scan_range(void* rangeptr) {
 		/* fprintf(stderr, "sockfd: %d\n", sockfd); */
 		serv_addr.sin_family = AF_INET;
 		serv_addr.sin_port = htons(80);
+
 		struct in_addr address;
 		address.s_addr = htonl(ip);
 		serv_addr.sin_addr = address;
+
 		status = connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
 		/* fprintf(stderr, "status: %d\n", status); */
 		/* fprintf(stderr, "errno: %d = %s\n", errno, strerror(errno)); */
 		while(errno == EINPROGRESS || errno == EALREADY && timedout != 1) {
 			/* TRACE_DEBUG("CONNECT WAIT"); */
 			status = connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+
 			struct timespec current;
 			clock_gettime(CLOCK_REALTIME, &current);
 			double seconds = (current.tv_sec - ts_start.tv_sec) + (current.tv_nsec - ts_start.tv_nsec) / 1e9;
+
 			if(seconds > 3 || do_exit == 1) {
 				/* TRACE_DEBUG("connect() timed out"); */
 				timedout = 1;
@@ -298,12 +311,15 @@ void* scan_range(void* rangeptr) {
 		}
 		/* TRACE_DEBUG("send()"); */
 		send(sockfd, (void*)request.request_line, 16, MSG_DONTWAIT);
+
 		timedout = 0; // reset timedout
 		while(errno == EAGAIN) {
 			/* TRACE_DEBUG("SEND WAIT"); */
 			send(sockfd, (void*)request.request_line, 16, MSG_DONTWAIT);
+
 			struct timespec send_current;
 			double seconds_spent = (send_current.tv_sec - ts_start.tv_sec) + (send_current.tv_nsec - ts_start.tv_nsec) / (double) 1e9;
+
 			if(seconds_spent > 3 || do_exit == 1) {
 				timedout = 1; // set timeout
 				break;
@@ -318,12 +334,15 @@ void* scan_range(void* rangeptr) {
 			continue; // go to next ip
 		}
 		send(sockfd, (void*)request.host_header, 6, MSG_DONTWAIT);
+
 		timedout = 0; // reset timedout
 		while(errno == EAGAIN) {
 			/* TRACE_DEBUG("SEND WAIT"); */
 			send(sockfd, (void*)request.host_header, 6, MSG_DONTWAIT);
+
 			struct timespec send_current;
 			double seconds_spent = (send_current.tv_sec - ts_start.tv_sec) + (send_current.tv_nsec - ts_start.tv_nsec) / (double) 1e9;
+
 			if(seconds_spent > 3 || do_exit == 1) {
 				timedout = 1; // set timeout
 				break;
@@ -338,12 +357,15 @@ void* scan_range(void* rangeptr) {
 			continue; // go to next ip
 		}
 		send(sockfd, (void*)request.host_ip_str, request.iplen, MSG_DONTWAIT);
+
 		timedout = 0; // reset timedout
 		while(errno == EAGAIN) {
 			/* TRACE_DEBUG("SEND WAIT"); */
 			send(sockfd, (void*)request.host_ip_str, request.iplen, MSG_DONTWAIT);
+
 			struct timespec send_current;
 			double seconds_spent = (send_current.tv_sec - ts_start.tv_sec) + (send_current.tv_nsec - ts_start.tv_nsec) / (double) 1e9;
+
 			if(seconds_spent > 3 || do_exit == 1) {
 				timedout = 1; // set timeout
 				break;
@@ -358,12 +380,14 @@ void* scan_range(void* rangeptr) {
 			continue; // go to next ip
 		}
 		send(sockfd, (void*)request.end, 4, MSG_DONTWAIT);
+
 		timedout = 0; // reset timedout
 		while(errno == EAGAIN) {
 			/* TRACE_DEBUG("SEND WAIT"); */
 			send(sockfd, (void*)request.end, 4, MSG_DONTWAIT);
 			struct timespec send_current;
 			double seconds_spent = (send_current.tv_sec - ts_start.tv_sec) + (send_current.tv_nsec - ts_start.tv_nsec) / (double) 1e9;
+
 			if(seconds_spent > 3 || do_exit == 1) {
 				timedout = 1; // set timeout
 				break;
@@ -383,7 +407,9 @@ void* scan_range(void* rangeptr) {
 		int count;
 		int done = 0;
 		int haveread = 0;
+
 		ioctl(sockfd, FIONREAD, &count);
+
 		int readcount = 0;
 		char* firstbuffer;
 		size_t firstbuffersize = -1;
@@ -395,11 +421,13 @@ void* scan_range(void* rangeptr) {
 		char* swap;
 		size_t full_size = 0;
 		timedout = 0;
+
 		while(!done) {
 			/* TRACE_DEBUG("READ WAIT"); */
 			struct timespec read_current;
 			clock_gettime(CLOCK_REALTIME, &read_current);
 			double seconds = (read_current.tv_sec - ts_start.tv_sec) + (read_current.tv_nsec - ts_start.tv_nsec) / 1e9;
+
 			if(seconds > 3 || do_exit == 1) {
 				timedout = 1;
 				break;
@@ -413,6 +441,7 @@ void* scan_range(void* rangeptr) {
 				buffersize = count+1;
 				memset(buffer,0,count+1);
 				valread = read(sockfd,buffer,count);
+
 				full_size += count;
 				readcount++;
 				if(readcount == 1) {
@@ -422,6 +451,7 @@ void* scan_range(void* rangeptr) {
 					memset(firstbuffer,0,buffersize);
 					memcpy(firstbuffer,buffer,buffersize);
 					firstbuffersize = buffersize;
+
 					comb_front = malloc(buffersize);
 					comb_front_size = buffersize;
 					memset(comb_front,0,buffersize);
@@ -458,6 +488,7 @@ void* scan_range(void* rangeptr) {
 				/* fprintf(stderr, "comb_front: %s", comb_front); */
 				char crlfcomp[4] = "\r\n\r\n";
 				char last4bytes[4];
+
 				memcpy(last4bytes, &buffer[count-4], 4);
 				/* for(int i = 0; i<4; i++) { */
 				/* 	fprintf(stderr, "last4bytes[%d]: %02X\n", i, last4bytes[i]); */
@@ -484,8 +515,8 @@ void* scan_range(void* rangeptr) {
 		}
 		if(timedout) {
 			/* TRACE_DEBUG("read timed out"); */
-			counter++; // skip this ip
 			close(sockfd);
+			counter++; // skip this ip
 			continue; // go to next one
 		}
 		/* fprintf(stderr, "readcount: %d\n", readcount); */
@@ -494,6 +525,7 @@ void* scan_range(void* rangeptr) {
 		// Read status line out of firstbuffer
 		if(firstbuffersize == -1) {
 			TRACE_DEBUG("Something ain't right...");
+
 			counter++;
 			/* close(sockfd); */
 			continue;
@@ -508,6 +540,7 @@ void* scan_range(void* rangeptr) {
 						break;
 					} else {
 						TRACE_DEBUG("CR without LF");
+
 						free(firstbuffer);
 						counter++;
 						failed_to_find_status = 1;
@@ -515,6 +548,7 @@ void* scan_range(void* rangeptr) {
 					}
 				} else {
 					TRACE_DEBUG("couldn't find status-line");
+
 					free(firstbuffer);
 					counter++;
 					failed_to_find_status = 1;
@@ -544,6 +578,7 @@ void* scan_range(void* rangeptr) {
 			char resolved_ok_ip[16];
 			memset(resolved_ok_ip,0,16);
 			resolve_ip(ip, resolved_ok_ip);
+
 			fprintf(stderr, "%s returned 200\n", resolved_ok_ip);
 			/* fprintf(stderr, "%s\n", "200!!!"); */
 		} 
@@ -567,6 +602,7 @@ void* scan_range(void* rangeptr) {
 		site.status_code = 200;
 		site.payload_size = comb_front_size;
 		site.payload = comb_front;
+
 		int block_index = find_free_block_index();	
 		/* Wait until there is a free block */
 		while(block_index == -1) {
@@ -584,9 +620,11 @@ void* scan_range(void* rangeptr) {
 		/* TRACE_DEBUG("unlocked"); */
 		/* free(comb_front); */ // dont free if we write this to the block
 		counter++;
+
 		/* CALCULATE TIME */
 		struct timespec ts_end;
 		clock_gettime(CLOCK_REALTIME, &ts_end);
+
 		double seconds_spent = -1;
 		seconds_spent = (ts_end.tv_sec - ts_start.tv_sec) + (ts_end.tv_nsec - ts_start.tv_nsec) / (double) 1e9;
 		/* fprintf(stderr,"check_ip took %fms\n", seconds_spent*1000); */
@@ -631,13 +669,17 @@ int split_range(u32 start_ip, u32 end_ip) {
 		if(i == 0) {
 			start = start_ip;
 			end = start + split_ip_range;
+
 			starts[starts_counter] = start;
 			ends[ends_counter] = end;
+
 			starts_counter++;
 			ends_counter++;
+
 			char start_resolved_ip[16];
 			memset(start_resolved_ip,0,16);
 			resolve_ip(start,start_resolved_ip);
+
 			char end_resolved_ip[16];
 			memset(end_resolved_ip,0,16);
 			resolve_ip(end,end_resolved_ip);
@@ -658,12 +700,14 @@ int split_range(u32 start_ip, u32 end_ip) {
 			}
 			starts[starts_counter] = start;
 			ends[ends_counter] = end;
+
 			starts_counter++;
 			ends_counter++;
 
 			char start_resolved_ip[16];
 			memset(start_resolved_ip,0,16);
 			resolve_ip(start,start_resolved_ip);
+
 			char end_resolved_ip[16];
 			memset(end_resolved_ip,0,16);
 			resolve_ip(end,end_resolved_ip);
@@ -686,7 +730,9 @@ u32 ip_str_to_ip_u32(char* input) {
 	u32 ip = 0xdeadc0de;
 
 	u8 num_bytes[4];
+
 	int bytecounter = 0;
+
 	char* str_byte1;
 	char* str_byte2;
 	char* str_byte3;
@@ -703,6 +749,7 @@ u32 ip_str_to_ip_u32(char* input) {
 			if(dotcounter == 3) {
 				return 0xdeadc0de;
 			}
+
 			dot_indexes[dotcounter] = i;	
 			dotcounter++;
 		}
@@ -761,11 +808,14 @@ u32 ip_str_to_ip_u32(char* input) {
 	u8 byte2 = num_bytes[1];
 	u8 byte3 = num_bytes[2];
 	u8 byte4 = num_bytes[3];
+
 	ip = 0x00000000;
+
 	u32 padded_byte1 = byte1<<24;	
 	u32 padded_byte2 = byte2<<16;	
 	u32 padded_byte3 = byte3<<8;	
 	u32 padded_byte4 = byte4;
+
 	ip = padded_byte1|padded_byte2|padded_byte3|padded_byte4;
 	return ip;
 }
@@ -773,6 +823,7 @@ int main(int argc, char** argv) {
 	if(argc < 2) {
 		usage();
 	}
+
 	char* svalue = NULL;
 	char* evalue = NULL;
 	char* tvalue = NULL;
@@ -798,10 +849,13 @@ int main(int argc, char** argv) {
 	if(svalue == NULL || evalue == NULL || tvalue == NULL) {
 		usage();
 	}
+
 	threads_wanted = atoi(tvalue);
 	threads_possible = threads_wanted;
+
 	u32 start_ip = ip_str_to_ip_u32(svalue);
 	u32 end_ip = ip_str_to_ip_u32(evalue);
+
 	if(start_ip == 0xdeadc0de || end_ip == 0xdeadc0de) {
 		TRACE_ERROR("ip_str_to_ip_u32() failed");
 		return -1;
@@ -809,7 +863,9 @@ int main(int argc, char** argv) {
 	/* Allocate starts and ends */
 	starts = malloc(threads_wanted*sizeof(u32));
 	ends = malloc(threads_wanted*sizeof(u32));
+
 	int split_range_rv = split_range(start_ip, end_ip);
+
 	if(split_range_rv < 0) {
 		TRACE_ERROR("split_range failed");
 		return -1;
@@ -818,6 +874,7 @@ int main(int argc, char** argv) {
 		fprintf(stderr,"Could only spawn %d threads, starting in 5 seconds...\n", threads_possible);
 		sleep(5); // sleep for 5s so user can read the message
 	}
+
 	pthread_t threads[threads_possible];
 	// init blocks
 	init_blocks();
@@ -853,19 +910,23 @@ int main(int argc, char** argv) {
 	// start watchdog
 	pthread_t watchdog_thread;
 	int watchdog_thread_ret = pthread_create(&watchdog_thread, NULL, block_watchdog, NULL);
+	// start all threads
 	int threads_started = 0;
 	for(int i = 0; i<threads_possible; i++) {
 		char start_ip_resolved[16];
 		memset(start_ip_resolved,0,16);
 		resolve_ip(starts[i], start_ip_resolved);
+
 		char end_ip_resolved[16];
 		memset(end_ip_resolved,0,16);
 		resolve_ip(ends[i], end_ip_resolved);
+		
 		/* printf("%d: start: %s\tend: %s\n",i,start_ip_resolved, end_ip_resolved); */ 
 		struct ip_range* rangeptr = malloc(sizeof(struct ip_range));
 		rangeptr->start_ip = starts[i];
 		rangeptr->end_ip = ends[i];
 		rangeptr->tid = threads_started;
+		
 		/* fprintf(stderr, "starting thread %d, start_ip: %u = %s, end_ip: %u = %s\n", threads_started, start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
 		pthread_create(&threads[i],NULL,scan_range,(void*)rangeptr);
 		threads_started++;

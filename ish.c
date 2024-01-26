@@ -218,14 +218,14 @@ struct http_request make_request(char* ip) {
 struct ip_range {
 	u32 start_ip;
 	u32 end_ip;
+	int tid;
 };
 void* scan_range(void* rangeptr) {
-	int tid;
-	tid = threads_running;
 	threads_running++;
 	struct ip_range range = *(struct ip_range*)rangeptr; 
 	u32 start_ip = range.start_ip;
 	u32 end_ip = range.end_ip;
+	int tid = range.tid;
 	char start_ip_resolved[16];
 	char end_ip_resolved[16];
 	resolve_ip(start_ip,start_ip_resolved);
@@ -245,7 +245,7 @@ void* scan_range(void* rangeptr) {
 			return 0;
 		}
 		if(ip == 0) {
-			fprintf(stderr,"Warning: tid %d tried scanning 0.0.0.0, bailing out.\nTRACE:\nip: %u, start_ip: %u, end_ip: %u, counter: %d, rangeptr: %p\n", tid, ip, start_ip, end_ip, counter, rangeptr);
+			fprintf(stderr,"Warning: thread %d tried scanning 0.0.0.0, bailing out.\nTRACE:\nip: %u, start_ip: %u, end_ip: %u, counter: %d, rangeptr: %p\n", tid, ip, start_ip, end_ip, counter, rangeptr);
 			threads_running--;
 			return 0;
 		}
@@ -255,7 +255,7 @@ void* scan_range(void* rangeptr) {
 		clock_gettime(CLOCK_REALTIME, &ts_start);
 		char resolved_ip[16];
 		resolve_ip(ip,resolved_ip);
-		fprintf(stderr,"tid %d scanning ip: %s\n", tid, resolved_ip);
+		fprintf(stderr,"thread %d scanning ip: %s\n", tid, resolved_ip);
 		struct http_request request;
 		request = make_request(resolved_ip);
 		/* SEND REQUEST */
@@ -600,7 +600,7 @@ void resolve_ip(u32 ip, char* output) {
 	uint8_t byte2 = ip>>16&0xff;
 	uint8_t byte3 = ip>>8&0xff;
 	uint8_t byte4 = ip&0xff;
-	snprintf(output, 15, "%d.%d.%d.%d", byte1, byte2, byte3, byte4);
+	snprintf(output, 16, "%d.%d.%d.%d", byte1, byte2, byte3, byte4);
 }
 int split_range(u32 start_ip, u32 end_ip) {
 	if(!(end_ip > start_ip)) {
@@ -614,16 +614,16 @@ int split_range(u32 start_ip, u32 end_ip) {
 	}
 	u32 split_ip_range = floor((int)(ip_range/threads_wanted));
 	/* fprintf(stderr, "split_ip_range: %u\n", split_ip_range); */
-	if((split_ip_range * threads_wanted) > ip_range) {
-		/* TRACE_WARNING("split_ip_range*threads_wanted > ip_range"); */
-		/* fprintf(stderr,"ip_range - (split_ip_range*threads_wanted) = %d\n", ip_range - (split_ip_range*threads_wanted)); */
-		/* fprintf(stderr,"ip_range: %u, split_ip_range*threads_wanted: %u\n", ip_range, split_ip_range*threads_wanted); */
-	} else if((split_ip_range * threads_wanted) < ip_range) {
-		/* TRACE_WARNING("split_ip_range*threads_wanted < ip_range"); */
-		/* fprintf(stderr,"ip_range: %u, split_ip_range*threads_wanted: %u\n", ip_range, split_ip_range*threads_wanted); */
-	} else {
-		/* TRACE_DEBUG("split_ip_range*threads_wanted == ip_range"); */
-	}
+	/* if((split_ip_range * threads_wanted) > ip_range) { */
+	/* 	TRACE_WARNING("split_ip_range*threads_wanted > ip_range"); */
+	/* 	fprintf(stderr,"ip_range - (split_ip_range*threads_wanted) = %d\n", ip_range - (split_ip_range*threads_wanted)); */
+	/* 	fprintf(stderr,"ip_range: %u, split_ip_range*threads_wanted: %u\n", ip_range, split_ip_range*threads_wanted); */
+	/* } else if((split_ip_range * threads_wanted) < ip_range) { */
+	/* 	TRACE_WARNING("split_ip_range*threads_wanted < ip_range"); */
+	/* 	fprintf(stderr,"ip_range: %u, split_ip_range*threads_wanted: %u\n", ip_range, split_ip_range*threads_wanted); */
+	/* } else { */
+	/* 	TRACE_DEBUG("split_ip_range*threads_wanted == ip_range"); */
+	/* } */
 	u32 start = start_ip;
 	u32 end = 0;
 	u32 last_end = 0;
@@ -853,17 +853,22 @@ int main(int argc, char** argv) {
 	// start watchdog
 	pthread_t watchdog_thread;
 	int watchdog_thread_ret = pthread_create(&watchdog_thread, NULL, block_watchdog, NULL);
+	int threads_started = 0;
 	for(int i = 0; i<threads_possible; i++) {
 		char start_ip_resolved[16];
+		memset(start_ip_resolved,0,16);
 		resolve_ip(starts[i], start_ip_resolved);
 		char end_ip_resolved[16];
+		memset(end_ip_resolved,0,16);
 		resolve_ip(ends[i], end_ip_resolved);
 		/* printf("%d: start: %s\tend: %s\n",i,start_ip_resolved, end_ip_resolved); */ 
 		struct ip_range* rangeptr = malloc(sizeof(struct ip_range));
 		rangeptr->start_ip = starts[i];
 		rangeptr->end_ip = ends[i];
-		/* fprintf(stderr, "starting thread, start_ip: %u = %s, end_ip: %u = %s\n", start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
+		rangeptr->tid = threads_started;
+		/* fprintf(stderr, "starting thread %d, start_ip: %u = %s, end_ip: %u = %s\n", threads_started, start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
 		pthread_create(&threads[i],NULL,scan_range,(void*)rangeptr);
+		threads_started++;
 	}
 	free(starts);
 	free(ends);

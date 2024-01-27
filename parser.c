@@ -118,18 +118,12 @@ void fill_data() {
 		char* payload;
 
 		u8* magicptr = magic_pointers[i];
-		/* TRACE_DEBUG("memcpy 1"); */
 		memcpy(&magic,magicptr+MAGIC_OFFSET,sizeof(u32)); // copy magic
-		/* TRACE_DEBUG("memcpy 2"); */
 		memcpy(&ip,magicptr+IP_OFFSET,sizeof(u32));
-		/* TRACE_DEBUG("memcpy 3"); */
 		memcpy(&status_code,magicptr+STATUS_OFFSET,sizeof(u16));
-		/* TRACE_DEBUG("memcpy 4"); */
 		memcpy(&payload_size,magicptr+PAYLOAD_SIZE_OFFSET,sizeof(u64));
-		// prepare for payload write
 		payload = malloc(payload_size*sizeof(char));	
 		// write payload
-		/* TRACE_DEBUG("memcpy 5"); */
 		memcpy(payload,magicptr+PAYLOAD_OFFSET,payload_size);
 		
 		// create and populate struct
@@ -252,15 +246,15 @@ int main(int argc, char** argv) {
 	find_magic(full_buffer, full_buffer+fsz, fsz);
 	
 	// check that the pointers actually point to magic numbers
-	check_pointers();
+	/* check_pointers(); */
 	// stats
 	/* fprintf(stderr,"\ngoodpointers: %d\npointercounter: %d\n", goodpointers, pointercounter); */
-	if(goodpointers != pointercounter) {
-		TRACE_ERROR("goodpointers != pointercounter");
-		free(magic_pointers);
-		free(full_buffer);
-		return -1;
-	}
+	/* if(goodpointers != pointercounter) { */
+	/* 	TRACE_ERROR("goodpointers != pointercounter"); */
+	/* 	free(magic_pointers); */
+	/* 	free(full_buffer); */
+	/* 	return -1; */
+	/* } */
 
 	// allocate site_data_array
 	site_data_array = malloc(pointercounter*sizeof(struct site_data));

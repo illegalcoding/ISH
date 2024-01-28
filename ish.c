@@ -42,11 +42,13 @@
 #include <time.h>
 #include <errno.h>
 #include <signal.h>
+#include <ctype.h>
 
 #define TRACE_ERROR(STR) fprintf(stderr,"ERROR: %s\n",STR);
 #define TRACE_WARNING(STR) fprintf(stderr,"Warning: %s\n",STR);
 #define TRACE_DEBUG(STR) fprintf(stderr,"Debug: %s\n",STR);
 #define TRACE_MESSAGE(STR) fprintf(stdout,"%s\n",STR);
+#define TIMEOUT_TIME 3
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
@@ -191,15 +193,10 @@ struct file_block {
 void write_data(struct site_data* data) {
 	if(file_out_open) {
 		int rv = 0;
-		/* TRACE_DEBUG("fwrite 1") */
 		rv = fwrite(&(data->magic),sizeof(u32),1,file_out); // SITEBLOC magic
-		/* TRACE_DEBUG("fwrite 2") */
 		rv = fwrite(&(data->ip), sizeof(u32), 1, file_out);
-		/* TRACE_DEBUG("fwrite 3") */
 		rv = fwrite(&(data->status_code), sizeof(u16), 1, file_out);  	
-		/* TRACE_DEBUG("fwrite 4") */
 		rv = fwrite(&(data->payload_size), sizeof(u64), 1, file_out);  	
-		/* TRACE_DEBUG("fwrite 5") */
 		rv = fwrite(data->payload, data->payload_size, 1, file_out);
 	} else {
 		TRACE_ERROR("Output file not open.");
@@ -222,6 +219,134 @@ struct ip_range {
 	u32 end_ip;
 	int tid;
 };
+int check_content_length_header(char* header) {
+	char good_header[] = "content-length:";
+	char* comphdr = malloc(15+1);
+	memset(comphdr,0,15+1);
+	for(int i = 0; i<15+1;i++) {
+		comphdr[i] = tolower(header[i]);
+	}
+	int rv = strcmp(good_header,comphdr);
+	return rv;
+	free(comphdr);
+	/* Convert header to lowercase */
+}
+int find_header_end_offset(char* payload, size_t payload_size) {
+	int counter = 0;
+	int start_index = 0;
+	int do_index = start_index;
+	int header_end_index = -1;
+	while(do_index < payload_size) {
+		do_index = start_index+counter;
+		if(do_index+3 >= payload_size) {
+			TRACE_ERROR("couldn't find end of headers");
+			break;
+		}
+		counter++;
+		if(payload[do_index] != 0x0D) {
+			continue;
+		}
+		if(payload[do_index+1] != 0x0A) {
+			continue;
+		}
+		if(payload[do_index+2] != 0x0D) {
+			continue;
+		}
+		if(payload[do_index+3] != 0x0A) {
+			continue;
+		}
+		/* Our offset is the first CR, offset+3 is the last LF */
+		header_end_index = do_index+3;
+		break;
+	}
+	return header_end_index;
+}
+int content_length_parser(char* payload, size_t payload_size, size_t all_read) {
+	/* This should be case INsensitive */
+	char* content_length_header;
+	content_length_header = malloc(15+1);
+	memset(content_length_header,0,15+1);
+	int found = 0;
+	int found_offset = -1;
+	for(int i = 0; i<payload_size; i++) {
+		/* Make sure we don't go Out-of-Bounds, I hope I'm not off by one... */
+		if(i+15 < payload_size) {
+			memcpy(content_length_header,&payload[i],15);
+			int rv = check_content_length_header(content_length_header);
+			if(rv == 0) {
+				found = 1;
+				found_offset = i;
+				break;
+			}
+		}
+	}
+	if(!found) {
+		TRACE_ERROR("Couldn't find content-length");
+		free(content_length_header);
+		return -1;
+	}
+	if(found_offset == -1) {
+		free(content_length_header);
+		return -1;	
+	}
+	/* Find end */
+	char c = 0;
+	int end_offset = -1;
+	int counter = 0;
+	while(c != '\r' && c != '\n') {
+		if(found_offset+counter > payload_size-1) {
+			TRACE_ERROR("no newline after content-length")
+			free(content_length_header);
+			return -1;
+		}
+		c = payload[found_offset+counter];
+		end_offset = found_offset+counter;
+		counter++;
+	}
+	/* fprintf(stderr, "found_offset: %d, end_offset: %d, payload[found_offset]: %c, payload[end_offset]: %02X\n",found_offset,end_offset,payload[found_offset],payload[end_offset]); */
+	size_t header_size = end_offset-found_offset;
+	/* fprintf(stderr,"payload: %s\n",payload); */
+	/* fprintf(stderr, "header_size: %lu\n",header_size); */
+	char* full_header = malloc(header_size+1);
+	memset(full_header,0,header_size+1);
+	memcpy(full_header,&payload[found_offset],header_size);
+	/* fprintf(stderr,"full_header: %s\n",full_header); */
+	int num_offset = 16;
+	int num_length = header_size-num_offset;
+	char* str_num_bytes = malloc(num_length+1);
+	memset(str_num_bytes,0,num_length+1);
+	strncpy(str_num_bytes,&full_header[num_offset],num_length);
+	int num_bytes = atoi(str_num_bytes);
+	/* fprintf(stderr,"num_offset: %d, num_length: %d, full_header[num_offset]: %s, str_num_bytes: %s, num_bytes: %d\n",num_offset,num_length,&full_header[num_offset], str_num_bytes, num_bytes); */
+	/* Calculate if this is the last packet */
+	/* Find where the headers end */
+	/* TRACE_DEBUG("calling find_header_end_offset"); */
+	int header_end_offset = find_header_end_offset(payload, payload_size);
+	/* fprintf(stderr,"header_end_offset: %d\n",header_end_offset); */
+	if(header_end_offset == -1) {
+		/* TRACE_DEBUG("find_header_end_offset returned -1"); */
+		free(str_num_bytes);
+		free(content_length_header);
+		free(full_header);
+		return -1;
+	}
+	size_t all_headers_size = header_end_offset;
+	size_t data_size = all_read-all_headers_size;
+	/* fprintf(stderr,"all_headers_size: %lu\n",all_headers_size); */
+	/* fprintf(stderr,"data_size: %lu\n",data_size); */
+	if(num_bytes != data_size-1) { /* No clue why we need the -1 */
+		/* This isn't the last packet */
+		free(str_num_bytes);
+		free(content_length_header);
+		free(full_header);
+		return 1;
+	}
+	/* This is the last packet */
+	free(str_num_bytes);
+	free(content_length_header);
+	free(full_header);
+	return 0;
+}
 void* scan_range(void* rangeptr) {
 	threads_running++;
 
@@ -297,7 +422,7 @@ void* scan_range(void* rangeptr) {
 			clock_gettime(CLOCK_REALTIME, &current);
 			double seconds = (current.tv_sec - ts_start.tv_sec) + (current.tv_nsec - ts_start.tv_nsec) / 1e9;
 
-			if(seconds > 3 || do_exit == 1) {
+			if(seconds > TIMEOUT_TIME || do_exit == 1) {
 				/* TRACE_DEBUG("connect() timed out"); */
 				timedout = 1;
 			} 
@@ -320,7 +445,7 @@ void* scan_range(void* rangeptr) {
 			struct timespec send_current;
 			double seconds_spent = (send_current.tv_sec - ts_start.tv_sec) + (send_current.tv_nsec - ts_start.tv_nsec) / (double) 1e9;
 
-			if(seconds_spent > 3 || do_exit == 1) {
+			if(seconds_spent > TIMEOUT_TIME || do_exit == 1) {
 				timedout = 1; // set timeout
 				break;
 			}
@@ -343,7 +468,7 @@ void* scan_range(void* rangeptr) {
 			struct timespec send_current;
 			double seconds_spent = (send_current.tv_sec - ts_start.tv_sec) + (send_current.tv_nsec - ts_start.tv_nsec) / (double) 1e9;
 
-			if(seconds_spent > 3 || do_exit == 1) {
+			if(seconds_spent > TIMEOUT_TIME || do_exit == 1) {
 				timedout = 1; // set timeout
 				break;
 			}
@@ -366,7 +491,7 @@ void* scan_range(void* rangeptr) {
 			struct timespec send_current;
 			double seconds_spent = (send_current.tv_sec - ts_start.tv_sec) + (send_current.tv_nsec - ts_start.tv_nsec) / (double) 1e9;
 
-			if(seconds_spent > 3 || do_exit == 1) {
+			if(seconds_spent > TIMEOUT_TIME || do_exit == 1) {
 				timedout = 1; // set timeout
 				break;
 			}
@@ -388,7 +513,7 @@ void* scan_range(void* rangeptr) {
 			struct timespec send_current;
 			double seconds_spent = (send_current.tv_sec - ts_start.tv_sec) + (send_current.tv_nsec - ts_start.tv_nsec) / (double) 1e9;
 
-			if(seconds_spent > 3 || do_exit == 1) {
+			if(seconds_spent > TIMEOUT_TIME || do_exit == 1) {
 				timedout = 1; // set timeout
 				break;
 			}
@@ -421,14 +546,13 @@ void* scan_range(void* rangeptr) {
 		char* swap;
 		size_t full_size = 0;
 		timedout = 0;
-
 		while(!done) {
 			/* TRACE_DEBUG("READ WAIT"); */
 			struct timespec read_current;
 			clock_gettime(CLOCK_REALTIME, &read_current);
 			double seconds = (read_current.tv_sec - ts_start.tv_sec) + (read_current.tv_nsec - ts_start.tv_nsec) / 1e9;
 
-			if(seconds > 3 || do_exit == 1) {
+			if(seconds > TIMEOUT_TIME || do_exit == 1) {
 				timedout = 1;
 				break;
 			} else {
@@ -441,7 +565,7 @@ void* scan_range(void* rangeptr) {
 				buffersize = count+1;
 				memset(buffer,0,count+1);
 				valread = read(sockfd,buffer,count);
-
+				
 				full_size += count;
 				readcount++;
 				if(readcount == 1) {
@@ -451,11 +575,16 @@ void* scan_range(void* rangeptr) {
 					memset(firstbuffer,0,buffersize);
 					memcpy(firstbuffer,buffer,buffersize);
 					firstbuffersize = buffersize;
-
 					comb_front = malloc(buffersize);
 					comb_front_size = buffersize;
 					memset(comb_front,0,buffersize);
 					memcpy(comb_front,buffer,buffersize);
+					int rv = content_length_parser(firstbuffer, firstbuffersize, full_size);	
+					if(rv == 0) {
+						done = 1;
+					} else if(rv == -1) {
+						break;
+					}
 				} else {
 					/* TRACE_DEBUG("readcount != 1"); */
 					/* Copy comb_front and buffer to comb_back, swap */
@@ -474,41 +603,12 @@ void* scan_range(void* rangeptr) {
 					comb_front = swap;
 					comb_front_size=comb_front_size-1+buffersize;	
 					swap = NULL;
-				}
-				/* TODO: This section relies on the assumption that there is a trailing CRLF
-				 * at the end of the response. This may or may not be true, all the websites
-				 * I tested had it, but I'm not sure if it's in the spec. What definitely -is-
-				 * in the spec, is the Content-Length header, and we should use that to determine
-				 * if the response is over.
-				 */
-				/* fprintf(stderr, "valread: %d\n", valread); */
-				/* fprintf(stderr, "buffer: %s", buffer); */
-				/* if(readcount > 1) */
-				/* 	fprintf(stderr, "comb_back: %s", comb_back); */
-				/* fprintf(stderr, "comb_front: %s", comb_front); */
-				char crlfcomp[4] = "\r\n\r\n";
-				char last4bytes[4];
-
-				memcpy(last4bytes, &buffer[count-4], 4);
-				/* for(int i = 0; i<4; i++) { */
-				/* 	fprintf(stderr, "last4bytes[%d]: %02X\n", i, last4bytes[i]); */
-				/* } */
-				int twocrlf = strncmp(last4bytes, crlfcomp, 4);
-				
-				if(twocrlf == 0) {
-					endlf = 1;
-				}
-				/* fprintf(stderr, "twocrlf: %d\n", twocrlf); */
-				if(buffer[count-1] == '\n') {
-					endlf = 1;
-				}
-				/* fprintf(stderr, "endlf: %d\n", endlf); */
-				/* TRACE_DEBUG("free line 265"); */
-				free(buffer);
-				if(twocrlf != 0 && endlf == 1) {
-					/* Server sent singular LF at the end */
-					/* TRACE_DEBUG("END"); */
-					break;
+					int rv = content_length_parser(firstbuffer, firstbuffersize, full_size);	
+					if(rv == 0) {
+						done = 1;
+					} else if(rv == -1) {
+						break;
+					}
 				}
 			}
 			usleep(50*1000);
@@ -539,7 +639,7 @@ void* scan_range(void* rangeptr) {
 						statuslineend = i;	
 						break;
 					} else {
-						TRACE_DEBUG("CR without LF");
+						TRACE_ERROR("CR without LF");
 
 						free(firstbuffer);
 						counter++;
@@ -547,7 +647,7 @@ void* scan_range(void* rangeptr) {
 						break;
 					}
 				} else {
-					TRACE_DEBUG("couldn't find status-line");
+					TRACE_ERROR("couldn't find status-line");
 
 					free(firstbuffer);
 					counter++;
@@ -562,33 +662,59 @@ void* scan_range(void* rangeptr) {
 		}
 		char statusline[statuslineend+1];
 		memset(statusline,0,statuslineend+1);
-		strncpy(statusline, firstbuffer, statuslineend); // dont include CR, make room for \0
+		// maybe this'll fix the segfault...
+		if(firstbuffersize>=statuslineend) {
+			strncpy(statusline, firstbuffer, statuslineend); // dont include CR, make room for \0
+		}/* else {
+			TRACE_DEBUG("segfault mitigation 1");
+		}*/ 
 		/* fprintf(stderr, "statusline: %s\n", statusline); */
 		/* TRACE_DEBUG("free line 306"); */
 		char status_code[4];
 		memset(status_code,0,4);
-		strncpy(status_code,&statusline[9],3);
-
+		if(strlen(statusline)>=13) {
+			strncpy(status_code,&statusline[9],3);
+		}/* else {	
+			TRACE_DEBUG("segfault mitigation 2");
+		}*/
 		free(firstbuffer);
 		char okcode[] = "200";
+		char foundcode[] = "302";
+		char redirectcode[] = "301";
 		/* fprintf(stderr, "status_code: %s\n", status_code); */
 		int okresult = strcmp(status_code,okcode);
+		int foundresult = strcmp(status_code,foundcode);
+		int redirectresult = strcmp(status_code,redirectcode);
+		int statuscode = 0;
 		/* WE HAVE A 200 */
 		if(okresult == 0) {
 			char resolved_ok_ip[16];
 			memset(resolved_ok_ip,0,16);
 			resolve_ip(ip, resolved_ok_ip);
-
+			statuscode = 200;
 			fprintf(stderr, "%s returned 200\n", resolved_ok_ip);
-			/* fprintf(stderr, "%s\n", "200!!!"); */
-		} 
+		} else if(foundresult == 0) {
+			char resolved_found_ip[16];
+			memset(resolved_found_ip,0,16);
+			resolve_ip(ip, resolved_found_ip);
+			statuscode = 302;
+			
+			fprintf(stderr, "%s returned 302\n", resolved_found_ip);	
+		} else if(redirectresult == 0) {
+			char resolved_redirect_ip[16];
+			memset(resolved_redirect_ip,0,16);
+			resolve_ip(ip, resolved_redirect_ip);
+			statuscode = 301;
+
+			fprintf(stderr, "%s returned 301\n", resolved_redirect_ip);
+		}
 		
 		/* fprintf(stderr, "\n\n\ncomb_front: %s", comb_front); */
 		if(readcount > 1) {
 			free(comb_back);
 		}
-		if(okresult != 0) {
-			/* Not 200, no need to save */
+		if(statuscode == 0) {
+			/* Not 200||301||302, no need to save */
 			free(comb_front); // We can free this cause we don't need it anymore
 			counter++;
 			/* close(sockfd); */
@@ -599,7 +725,7 @@ void* scan_range(void* rangeptr) {
 		struct site_data site;
 		site.magic = 0x5173B10C;
 		site.ip = ip;
-		site.status_code = 200;
+		site.status_code = statuscode;
 		site.payload_size = comb_front_size;
 		site.payload = comb_front;
 
@@ -727,6 +853,7 @@ void usage() {
 	exit(1);
 }
 u32 ip_str_to_ip_u32(char* input) {
+	/* fprintf(stderr,"ip_str_to_ip_u32 entry, input: %s\n",input); */
 	u32 ip = 0xdeadc0de;
 
 	u8 num_bytes[4];
@@ -852,8 +979,14 @@ int main(int argc, char** argv) {
 
 	threads_wanted = atoi(tvalue);
 	threads_possible = threads_wanted;
-
+	/* If I remove these fprintfs and compile with -O2 the program segfaults because svalue and evalue aren't set properly.
+	 * If I include these fprintfs and compile with -O2, only one of them runs, but it doesn't segfault.
+	 * If I compile with -O0 everything behaves as expected.
+	 * *sigh*
+	 */
+	/* fprintf(stderr,"calling ip_str_to_ip_u32, svalue: %s\n", svalue); */
 	u32 start_ip = ip_str_to_ip_u32(svalue);
+	/* fprintf(stderr,"calling ip_str_to_ip_u32, evalue: %s\n", evalue); */
 	u32 end_ip = ip_str_to_ip_u32(evalue);
 
 	if(start_ip == 0xdeadc0de || end_ip == 0xdeadc0de) {

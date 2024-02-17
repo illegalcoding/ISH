@@ -1,9 +1,9 @@
 # No Autosave
-\#
+\#*
 # No OBJECTS
-*.o
-# No Binaries
+# no binaries
 ish
 parser
+*.o
 # No site data
 *sitedata*

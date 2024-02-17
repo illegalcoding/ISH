@@ -1,0 +1,51 @@
+# Set language
+--language=c,c++
+
+# Set the indent style
+--style=allman
+--indent=tab
+--tab=8
+--use_tab=yes
+--indent-switches
+--indent-cases
+--indent-namespaces
+--indent-preproc-define
+--indent-col1-comments
+
+# Padding
+--pad-oper
+--pad-paren-in
+--pad-paren-out
+
+# Align pointer and reference symbols (*) with variable names
+--pointer-reference=none
+
+# Align pointer symbols (*) to the right of type identifiers
+--pointer=right
+
+# Pad parenthesised statements with a space
+--pad-paren=force
+
+# Align parenthesized statements
+--align-pointer=type
+--align-reference=type
+
+# Remove space before the parentheses in function calls
+--remove-parentheses-empty
+
+# Add space after keywords
+--add-brackets
+--add-one-line-brackets
+
+# Keep braces on same line as control statements
+--keep-one-line-blocks
+
+# Keep short functions in one line
+--max-instatement-indent=80
+
+# Keep single line statements on a single line
+--max-code-length=80
+
+# Add space after commas
+--break-closing-brackets
+--break-elseifs

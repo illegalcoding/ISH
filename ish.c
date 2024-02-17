@@ -49,10 +49,16 @@
 #define TRACE_DEBUG(STR) fprintf(stderr,"Debug: %s\n",STR);
 #define TRACE_MESSAGE(STR) fprintf(stdout,"%s\n",STR);
 #define TIMEOUT_TIME 3
+
+#define REQUEST_LINE "GET / HTTP/1.1\r\n"
+#define HOST_HEADER "Host: "
+#define END "\r\n\r\n"
+
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
+
 u32 *starts;
 u32 *ends;
 int starts_counter = 0;
@@ -64,11 +70,9 @@ int threads_done = 0;
 int threads_possible;
 int threads_wanted;
 int threads_running = 0;
-#define REQUEST_LINE "GET / HTTP/1.1\r\n"
-#define HOST_HEADER "Host: "
-#define END "\r\n\r\n"
 FILE *file_out;
 int file_out_open = 0;
+
 void signal_handler ( int signum )
 {
     fprintf ( stderr, "Signal caught, exiting...\n" );
@@ -97,6 +101,7 @@ struct site_data_block
     pthread_mutex_t lock; // So threads don't collide
     struct site_data data; // data
 };
+
 #define NUM_BLOCKS 100
 struct site_data_block blocks[NUM_BLOCKS]; // Create 100 blocks
 
@@ -113,22 +118,15 @@ void write_data ( struct site_data *data );
 void init_blocks()
 {
     for ( int i = 0; i < NUM_BLOCKS; i++ )
-    {
-        /* fprintf(stderr, "init block %d\n", i); */
         blocks[i].in_use = 0;
-    }
 }
 /* Find the first free block */
 int find_free_block_index()
 {
-    /* TRACE_DEBUG("find_free_block_index called"); */
     for ( int i = 0; i < NUM_BLOCKS; i++ )
     {
         if ( blocks[i].in_use == 0 )
-        {
-            /* fprintf(stderr, "found free block, index %d\n",i); */
             return i;
-        }
     }
 
     /* Only reached if no blocks are free */
@@ -148,50 +146,38 @@ void *block_watchdog ( void *thread_data )
 {
     while ( !watchdog_do_exit )
     {
-        /* TRACE_DEBUG("WATCHDOG ACTIVE"); */
         for ( int i = 0; i < NUM_BLOCKS; i++ )
         {
             if ( blocks[i].in_use == 1 )
-            {
-                /* fprintf(stderr, "clear block called on block %d\n", i); */
-                /* debug_block(&blocks[i]); */
                 clear_block ( &blocks[i] );
-            }
         }
 
         if ( do_exit != 1 )
         {
-
+            usleep ( 50000 );
+            continue;
         }
 
         if ( do_exit == 1 )
         {
-            /* TRACE_DEBUG("watchdog runfinal") */
             for ( int i = 0; i < NUM_BLOCKS; i++ )
             {
                 if ( blocks[i].in_use == 1 )
-                {
-                    /* fprintf(stderr, "clear block called on block %d\n", i); */
                     clear_block ( &blocks[i] );
-                }
             }
 
             all_dumped = 1;
             watchdog_do_exit = 1;
             fclose ( file_out );
-            /* TRACE_DEBUG("watchdog done"); */
             TRACE_MESSAGE ( "Done!" );
             break;
         }
-
-        usleep ( 50000 );
     }
 
     return 0;
 }
 void clear_block ( struct site_data_block *block )
 {
-    /* TRACE_DEBUG("clearing block"); */
     pthread_mutex_lock ( & ( block->lock ) );
 
     if ( block->in_use != 1 )
@@ -201,26 +187,12 @@ void clear_block ( struct site_data_block *block )
     }
 
     write_data ( & ( block->data ) );
-    /* TRACE_DEBUG("free line 115"); */
-    /* fprintf(stderr, "block.data.ip: %u\n", block->data.ip); */
-    /* fprintf(stderr, "block.data.status_code: %d\n", block->data.status_code); */
-    /* fprintf(stderr, "block.data.payload_size: %llu\n", block->data.payload_size); */
-    /* fprintf(stderr, "block.data.payload: %s", block.data.payload); */
-    /* TRACE_DEBUG("free payload"); */
+
     free ( block->data.payload );
     block->in_use = 0;
     pthread_mutex_unlock ( & ( block->lock ) );
-    /* TRACE_DEBUG("block clear"); */
 }
-/*
-struct file_block {
-	u32 magic; // OFFSET 0
-	u32 ip; // OFFSET 4
-	u16 status_code; // OFFSET 8
-	u64 payload_size; // OFFSET 10
-	char* payload; // OFFSET 18
-}
-*/
+
 void write_data ( struct site_data *data )
 {
     if ( file_out_open )
@@ -267,7 +239,6 @@ int check_content_length_header ( char *header )
     int rv = strcmp ( good_header, comphdr );
     return rv;
     free ( comphdr );
-    /* Convert header to lowercase */
 }
 int find_header_end_offset ( char *payload, size_t payload_size )
 {
@@ -300,7 +271,6 @@ int find_header_end_offset ( char *payload, size_t payload_size )
         if ( payload[do_index + 3] != 0x0A )
             continue;
 
-        /* Our offset is the first CR, offset+3 is the last LF */
         header_end_index = do_index + 3;
         break;
     }
@@ -366,30 +336,23 @@ int content_length_parser ( char *payload, size_t payload_size,
         counter++;
     }
 
-    /* fprintf(stderr, "found_offset: %d, end_offset: %d, payload[found_offset]: %c, payload[end_offset]: %02X\n",found_offset,end_offset,payload[found_offset],payload[end_offset]); */
     size_t header_size = end_offset - found_offset;
-    /* fprintf(stderr,"payload: %s\n",payload); */
-    /* fprintf(stderr, "header_size: %lu\n",header_size); */
+
     char *full_header = malloc ( header_size + 1 );
     memset ( full_header, 0, header_size + 1 );
     memcpy ( full_header, &payload[found_offset], header_size );
-    /* fprintf(stderr,"full_header: %s\n",full_header); */
+
     int num_offset = 16;
     int num_length = header_size - num_offset;
     char *str_num_bytes = malloc ( num_length + 1 );
     memset ( str_num_bytes, 0, num_length + 1 );
     strncpy ( str_num_bytes, &full_header[num_offset], num_length );
     int num_bytes = atoi ( str_num_bytes );
-    /* fprintf(stderr,"num_offset: %d, num_length: %d, full_header[num_offset]: %s, str_num_bytes: %s, num_bytes: %d\n",num_offset,num_length,&full_header[num_offset], str_num_bytes, num_bytes); */
-    /* Calculate if this is the last packet */
-    /* Find where the headers end */
-    /* TRACE_DEBUG("calling find_header_end_offset"); */
+
     int header_end_offset = find_header_end_offset ( payload, payload_size );
 
-    /* fprintf(stderr,"header_end_offset: %d\n",header_end_offset); */
     if ( header_end_offset == -1 )
     {
-        /* TRACE_DEBUG("find_header_end_offset returned -1"); */
         free ( str_num_bytes );
         free ( content_length_header );
         free ( full_header );
@@ -399,8 +362,6 @@ int content_length_parser ( char *payload, size_t payload_size,
     size_t all_headers_size = header_end_offset;
     size_t data_size = all_read - all_headers_size;
 
-    /* fprintf(stderr,"all_headers_size: %lu\n",all_headers_size); */
-    /* fprintf(stderr,"data_size: %lu\n",data_size); */
     if ( num_bytes != data_size - 1 )   /* No clue why we need the -1 */
     {
         /* This isn't the last packet */
@@ -410,7 +371,6 @@ int content_length_parser ( char *payload, size_t payload_size,
         return 1;
     }
 
-    /* This is the last packet */
     free ( str_num_bytes );
     free ( content_length_header );
     free ( full_header );
@@ -430,7 +390,7 @@ void *scan_range ( void *rangeptr )
     char end_ip_resolved[16];
     resolve_ip ( start_ip, start_ip_resolved );
     resolve_ip ( end_ip, end_ip_resolved );
-    /* fprintf(stderr, "started thread, start_ip: %u = %s, end_ip: %u = %s\n", start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
+
     int counter = 0;
     int local_do_exit = 0;
 
@@ -438,12 +398,10 @@ void *scan_range ( void *rangeptr )
 
     while ( !do_exit && !local_do_exit )
     {
-        /* TRACE_DEBUG("scan_range active"); */
         u32 ip = start_ip + counter;
 
         if ( ip > end_ip )
         {
-            /* TRACE_DEBUG("scan_range done"); */
             threads_done++;
             threads_running--;
             local_do_exit = 1;
@@ -453,7 +411,8 @@ void *scan_range ( void *rangeptr )
         if ( ip == 0 )
         {
             fprintf ( stderr,
-                      "Warning: thread %d tried scanning 0.0.0.0, bailing out.\nTRACE:\nip: %u, start_ip: %u, end_ip: %u, counter: %d, rangeptr: %p\n",
+                      "Warning: thread %d tried scanning 0.0.0.0, bailing out.\n\
+		      TRACE:\nip: %u, start_ip: %u, end_ip: %u, counter: %d, rangeptr: %p\n",
                       tid, ip, start_ip, end_ip, counter, rangeptr );
             threads_running--;
             return 0;
@@ -473,7 +432,7 @@ void *scan_range ( void *rangeptr )
         /* SEND REQUEST */
         int status, valread, sockfd;
         struct sockaddr_in serv_addr;
-        /* TRACE_DEBUG("socket()"); */
+
         sockfd = socket ( AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0 );
 
         if ( sockfd < 0 )
@@ -484,7 +443,6 @@ void *scan_range ( void *rangeptr )
             continue;
         }
 
-        /* fprintf(stderr, "sockfd: %d\n", sockfd); */
         serv_addr.sin_family = AF_INET;
         serv_addr.sin_port = htons ( 80 );
 
@@ -495,11 +453,8 @@ void *scan_range ( void *rangeptr )
         status = connect ( sockfd, ( struct sockaddr * ) &serv_addr,
                            sizeof ( serv_addr ) );
 
-        /* fprintf(stderr, "status: %d\n", status); */
-        /* fprintf(stderr, "errno: %d = %s\n", errno, strerror(errno)); */
         while ( errno == EINPROGRESS || errno == EALREADY && timedout != 1 )
         {
-            /* TRACE_DEBUG("CONNECT WAIT"); */
             status = connect ( sockfd, ( struct sockaddr * ) &serv_addr,
                                sizeof ( serv_addr ) );
 
@@ -509,30 +464,24 @@ void *scan_range ( void *rangeptr )
                              ( current.tv_nsec - ts_start.tv_nsec ) / 1e9;
 
             if ( seconds > TIMEOUT_TIME || do_exit == 1 )
-            {
-                /* TRACE_DEBUG("connect() timed out"); */
                 timedout = 1;
-            }
 
             usleep ( 1000 * 100 ); // sleep 100th of a second
         }
 
         if ( timedout == 1 )
         {
-            /* fprintf(stderr, "timed out, continue\n"); */
             counter++;
             close ( sockfd );
             continue;
         }
 
-        /* TRACE_DEBUG("send()"); */
         send ( sockfd, ( void * ) request.request_line, 16, MSG_DONTWAIT );
 
         timedout = 0; // reset timedout
 
         while ( errno == EAGAIN )
         {
-            /* TRACE_DEBUG("SEND WAIT"); */
             send ( sockfd, ( void * ) request.request_line, 16, MSG_DONTWAIT );
 
             struct timespec send_current;
@@ -545,13 +494,11 @@ void *scan_range ( void *rangeptr )
                 break;
             }
 
-            /* fprintf(stderr, "send 1, spent: %fs", seconds_spent); */
             usleep ( 1000 * 50 ); // sleep 50ms
         }
 
         if ( timedout )
         {
-            /* TRACE_DEBUG("Send 1 timed out"); */
             counter++; // skip this ip
             close ( sockfd );
             continue; // go to next ip
@@ -563,7 +510,6 @@ void *scan_range ( void *rangeptr )
 
         while ( errno == EAGAIN )
         {
-            /* TRACE_DEBUG("SEND WAIT"); */
             send ( sockfd, ( void * ) request.host_header, 6, MSG_DONTWAIT );
 
             struct timespec send_current;
@@ -576,13 +522,11 @@ void *scan_range ( void *rangeptr )
                 break;
             }
 
-            /* fprintf(stderr, "send 2, spent: %fs", seconds_spent); */
             usleep ( 1000 * 50 ); // sleep 50ms
         }
 
         if ( timedout )
         {
-            /* TRACE_DEBUG("Send 2 timed out"); */
             counter++; // skip this ip
             close ( sockfd );
             continue; // go to next ip
@@ -594,7 +538,6 @@ void *scan_range ( void *rangeptr )
 
         while ( errno == EAGAIN )
         {
-            /* TRACE_DEBUG("SEND WAIT"); */
             send ( sockfd, ( void * ) request.host_ip_str, request.iplen, MSG_DONTWAIT );
 
             struct timespec send_current;
@@ -607,13 +550,11 @@ void *scan_range ( void *rangeptr )
                 break;
             }
 
-            /* fprintf(stderr, "send 3, spent: %fs", seconds_spent); */
             usleep ( 1000 * 50 ); // sleep 50ms
         }
 
         if ( timedout )
         {
-            /* TRACE_DEBUG("Send 3 timed out"); */
             counter++; // skip this ip
             close ( sockfd );
             continue; // go to next ip
@@ -625,7 +566,6 @@ void *scan_range ( void *rangeptr )
 
         while ( errno == EAGAIN )
         {
-            /* TRACE_DEBUG("SEND WAIT"); */
             send ( sockfd, ( void * ) request.end, 4, MSG_DONTWAIT );
             struct timespec send_current;
             double seconds_spent = ( send_current.tv_sec - ts_start.tv_sec ) +
@@ -637,21 +577,16 @@ void *scan_range ( void *rangeptr )
                 break;
             }
 
-            /* fprintf(stderr, "send 4, spent: %fs", seconds_spent); */
             usleep ( 1000 * 50 ); // sleep 50ms
         }
 
         if ( timedout )
         {
-            /* TRACE_DEBUG("Send 4 timed out"); */
             counter++; // skip this ip
             close ( sockfd );
             continue; // go to next ip
         }
 
-        /* TRACE_DEBUG("no timeouts"); */
-        /* TRACE_DEBUG("data sent"); */
-        /* TRACE_DEBUG("doing read"); */
         int count;
         int done = 0;
         int haveread = 0;
@@ -672,7 +607,6 @@ void *scan_range ( void *rangeptr )
 
         while ( !done )
         {
-            /* TRACE_DEBUG("READ WAIT"); */
             struct timespec read_current;
             clock_gettime ( CLOCK_REALTIME, &read_current );
             double seconds = ( read_current.tv_sec - ts_start.tv_sec ) +
@@ -684,9 +618,7 @@ void *scan_range ( void *rangeptr )
                 break;
             }
             else
-            {
-                /* fprintf(stderr, "read wait, %fs passed\n", seconds); */
-            }
+                fprintf ( stderr, "read wait, %fs passed\n", seconds );
 
             ioctl ( sockfd, FIONREAD, &count );
 
@@ -704,7 +636,6 @@ void *scan_range ( void *rangeptr )
                 if ( readcount == 1 )
                 {
                     /* This is our first read, copy to firstbuffer and comb_front */
-                    /* TRACE_DEBUG("readcount 1"); */
                     firstbuffer = malloc ( buffersize );
                     memset ( firstbuffer, 0, buffersize );
                     memcpy ( firstbuffer, buffer, buffersize );
@@ -724,13 +655,10 @@ void *scan_range ( void *rangeptr )
                 }
                 else
                 {
-                    /* TRACE_DEBUG("readcount != 1"); */
                     /* Copy comb_front and buffer to comb_back, swap */
                     if ( readcount > 2 )
                     {
-                        /* TRACE_DEBUG("readcount > 2"); */
                         /* We have written to comb_back before, free it */
-                        /* TRACE_DEBUG("free line 232"); */
                         free ( comb_back );
                     }
 
@@ -762,13 +690,11 @@ void *scan_range ( void *rangeptr )
 
         if ( timedout )
         {
-            /* TRACE_DEBUG("read timed out"); */
             close ( sockfd );
             counter++; // skip this ip
             continue; // go to next one
         }
 
-        /* fprintf(stderr, "readcount: %d\n", readcount); */
         close ( sockfd );
 
         /* PARSE RESPONSE */
@@ -778,7 +704,6 @@ void *scan_range ( void *rangeptr )
             TRACE_DEBUG ( "Something ain't right..." );
 
             counter++;
-            /* close(sockfd); */
             continue;
         }
 
@@ -819,10 +744,7 @@ void *scan_range ( void *rangeptr )
         }
 
         if ( failed_to_find_status )
-        {
-            /* close(sockfd); */
             continue; // no counter because we already did them
-        }
 
         char statusline[statuslineend + 1];
         memset ( statusline, 0, statuslineend + 1 );
@@ -832,26 +754,18 @@ void *scan_range ( void *rangeptr )
         {
             strncpy ( statusline, firstbuffer,
                       statuslineend ); // dont include CR, make room for \0
-        }/* else {
+        }
 
-			TRACE_DEBUG("segfault mitigation 1");
-		}*/
-        /* fprintf(stderr, "statusline: %s\n", statusline); */
-        /* TRACE_DEBUG("free line 306"); */
         char status_code[4];
         memset ( status_code, 0, 4 );
 
         if ( strlen ( statusline ) >= 13 )
             strncpy ( status_code, &statusline[9], 3 );
 
-        /* else {
-        			TRACE_DEBUG("segfault mitigation 2");
-        		}*/
         free ( firstbuffer );
         char okcode[] = "200";
         char foundcode[] = "302";
         char redirectcode[] = "301";
-        /* fprintf(stderr, "status_code: %s\n", status_code); */
         int okresult = strcmp ( status_code, okcode );
         int foundresult = strcmp ( status_code, foundcode );
         int redirectresult = strcmp ( status_code, redirectcode );
@@ -887,7 +801,6 @@ void *scan_range ( void *rangeptr )
                     fprintf ( stderr, "%s returned 301\n", resolved_redirect_ip );
                 }
 
-        /* fprintf(stderr, "\n\n\ncomb_front: %s", comb_front); */
         if ( readcount > 1 )
             free ( comb_back );
 
@@ -896,7 +809,6 @@ void *scan_range ( void *rangeptr )
             /* Not 200||301||302, no need to save */
             free ( comb_front ); // We can free this cause we don't need it anymore
             counter++;
-            /* close(sockfd); */
             continue;
         }
 
@@ -918,16 +830,10 @@ void *scan_range ( void *rangeptr )
             usleep ( 50000 ); // sleep for 50ms
         }
 
-        /* TRACE_DEBUG("found block"); */
-        /* TRACE_DEBUG("lock"); */
         pthread_mutex_lock ( &blocks[block_index].lock );
-        /* TRACE_DEBUG("got lock"); */
         blocks[block_index].data = site;
         blocks[block_index].in_use = 1;
-        /* TRACE_DEBUG("unlock"); */
         pthread_mutex_unlock ( &blocks[block_index].lock );
-        /* TRACE_DEBUG("unlocked"); */
-        /* free(comb_front); */ // dont free if we write this to the block
         counter++;
 
         /* CALCULATE TIME */
@@ -937,7 +843,6 @@ void *scan_range ( void *rangeptr )
         double seconds_spent = -1;
         seconds_spent = ( ts_end.tv_sec - ts_start.tv_sec ) + ( ts_end.tv_nsec -
                         ts_start.tv_nsec ) / ( double ) 1e9;
-        /* fprintf(stderr,"check_ip took %fms\n", seconds_spent*1000); */
     }
 
     return 0;
@@ -968,17 +873,7 @@ int split_range ( u32 start_ip, u32 end_ip )
     }
 
     u32 split_ip_range = floor ( ( int ) ( ip_range / threads_wanted ) );
-    /* fprintf(stderr, "split_ip_range: %u\n", split_ip_range); */
-    /* if((split_ip_range * threads_wanted) > ip_range) { */
-    /* 	TRACE_WARNING("split_ip_range*threads_wanted > ip_range"); */
-    /* 	fprintf(stderr,"ip_range - (split_ip_range*threads_wanted) = %d\n", ip_range - (split_ip_range*threads_wanted)); */
-    /* 	fprintf(stderr,"ip_range: %u, split_ip_range*threads_wanted: %u\n", ip_range, split_ip_range*threads_wanted); */
-    /* } else if((split_ip_range * threads_wanted) < ip_range) { */
-    /* 	TRACE_WARNING("split_ip_range*threads_wanted < ip_range"); */
-    /* 	fprintf(stderr,"ip_range: %u, split_ip_range*threads_wanted: %u\n", ip_range, split_ip_range*threads_wanted); */
-    /* } else { */
-    /* 	TRACE_DEBUG("split_ip_range*threads_wanted == ip_range"); */
-    /* } */
+
     u32 start = start_ip;
     u32 end = 0;
     u32 last_end = 0;
@@ -1003,7 +898,6 @@ int split_range ( u32 start_ip, u32 end_ip )
             char end_resolved_ip[16];
             memset ( end_resolved_ip, 0, 16 );
             resolve_ip ( end, end_resolved_ip );
-            /* fprintf(stderr, "i: %d start: %s, end: %s\n", i, start_resolved_ip, end_resolved_ip); */
             last_end = end;
         }
         else
@@ -1013,12 +907,10 @@ int split_range ( u32 start_ip, u32 end_ip )
 
             if ( end > end_ip )
             {
-                /* fprintf(stderr, "i: %d, start+split_ip_range>end_ip, end = end_ip\n", i); */
                 end = end_ip;
 
                 if ( i + 1 != threads_wanted )
                 {
-                    /* fprintf(stderr,"i: %d, split_range stopping early\n", i); */
                     TRACE_WARNING ( "split_range couldn't create start and end for all threads" );
                     threads_possible = i;
                     return 1;
@@ -1038,7 +930,6 @@ int split_range ( u32 start_ip, u32 end_ip )
             char end_resolved_ip[16];
             memset ( end_resolved_ip, 0, 16 );
             resolve_ip ( end, end_resolved_ip );
-            /* fprintf(stderr, "i: %d start: %s, end: %s\n", i, start_resolved_ip, end_resolved_ip); */
             last_end = end;
         }
     }
@@ -1057,7 +948,6 @@ void usage()
 }
 u32 ip_str_to_ip_u32 ( char *input )
 {
-    /* fprintf(stderr,"ip_str_to_ip_u32 entry, input: %s\n",input); */
     u32 ip = 0xdeadc0de;
 
     u8 num_bytes[4];
@@ -1159,6 +1049,7 @@ u32 ip_str_to_ip_u32 ( char *input )
     ip = padded_byte1 | padded_byte2 | padded_byte3 | padded_byte4;
     return ip;
 }
+
 int main ( int argc, char **argv )
 {
     if ( argc < 2 )
@@ -1202,9 +1093,7 @@ int main ( int argc, char **argv )
      * If I compile with -O0 everything behaves as expected.
      * *sigh*
      */
-    /* fprintf(stderr,"calling ip_str_to_ip_u32, svalue: %s\n", svalue); */
     u32 start_ip = ip_str_to_ip_u32 ( svalue );
-    /* fprintf(stderr,"calling ip_str_to_ip_u32, evalue: %s\n", evalue); */
     u32 end_ip = ip_str_to_ip_u32 ( evalue );
 
     if ( start_ip == 0xdeadc0de || end_ip == 0xdeadc0de )
@@ -1285,13 +1174,11 @@ int main ( int argc, char **argv )
         memset ( end_ip_resolved, 0, 16 );
         resolve_ip ( ends[i], end_ip_resolved );
 
-        /* printf("%d: start: %s\tend: %s\n",i,start_ip_resolved, end_ip_resolved); */
         struct ip_range *rangeptr = malloc ( sizeof ( struct ip_range ) );
         rangeptr->start_ip = starts[i];
         rangeptr->end_ip = ends[i];
         rangeptr->tid = threads_started;
 
-        /* fprintf(stderr, "starting thread %d, start_ip: %u = %s, end_ip: %u = %s\n", threads_started, start_ip, start_ip_resolved, end_ip, end_ip_resolved); */
         pthread_create ( &threads[i], NULL, scan_range, ( void * ) rangeptr );
         threads_started++;
     }
@@ -1308,12 +1195,8 @@ int main ( int argc, char **argv )
     }
 
     for ( int i = 0; i < threads_possible; i++ )
-    {
-        /* fprintf(stderr, "joining %d\n", i); */
         pthread_join ( threads[i], NULL );
-    }
 
-    /* TRACE_DEBUG("ALL JOINED"); */
     do_exit = 1;
     pthread_join ( watchdog_thread, NULL );
     return 0;

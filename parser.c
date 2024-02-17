@@ -1,13 +1,13 @@
 /*
- * parser.c, v1.0 (2024-01-24T21:27:30+01:00)
+ * parser.c
  *
  * BSD 2-Clause License
- * 
+ *
  * Copyright (c) 2024, illegalcoding
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
- * 
+ *
  * 1. Redistributions of source code must retain the above copyright notice, this
  * list of conditions and the following disclaimer.
  *
@@ -34,14 +34,16 @@
 #include <string.h>
 #include <math.h>
 #include <sys/stat.h>
-#include <json-c/json.h> // json-c
+#include <json-c/json.h>
 
 #define FILENAME "output.sitedata"
-#define MAGIC 0x5173B10C // SITEBLOC
+#define MAGIC 0x5173B10C
+
 #define TRACE_ERROR(STR) fprintf(stderr,"error: %s\n",STR);
 #define TRACE_WARNING(STR) fprintf(stderr,"Warning: %s\n",STR);
 #define TRACE_DEBUG(STR) fprintf(stderr,"debug: %s\n",STR);
 #define TRACE_MESSAGE(STR) fprintf(stdout,"%s\n",STR);
+
 #define MAGIC_OFFSET 0
 #define IP_OFFSET 4
 #define STATUS_OFFSET 8
@@ -57,23 +59,22 @@ typedef uint64_t u64;
 
 void find_magic(u8*, u8*, size_t);
 int check_magic(u32);
-void check_pointers();
 void fill_data();
 void free_payloads(); 
 void print_sites();
 void make_json();
 void resolve_ip(u32 ip, char* output);
+
 u8** magic_pointers;
 int pointercounter = 0;
-int goodpointers = 0;
 json_object* jobj;	
 
 struct site_data {
-	u32 magic; // = 0x5173B10C (SITEBLOC)
+	u32 magic;
 	u32 ip;
 	u16 status_code;
 	u64 payload_size;
-	char* payload; // The payload, with the headers (for now at least)
+	char* payload;
 };
 
 struct site_data* site_data_array;
@@ -82,35 +83,21 @@ void find_magic(u8* start_buffer, u8* end_buffer, size_t sz) {
 	u32 holding;
 	int counter = 0;
 	u8* buffer = start_buffer+counter;
+	
 	while(buffer <= end_buffer-4) {
 		buffer = start_buffer+counter;
 		memcpy(&holding,buffer,4);	
-		/* fprintf(stderr,"holding: %X\n", holding); */
-		int rv = 0;
-		// this should just be if holding == MAGIC
+
 		if(holding == MAGIC) {
-			/* fprintf(stderr,"magic found at pointer: %p\n", buffer); */
 			magic_pointers[pointercounter] = buffer;
 			pointercounter++;
 		}
 		counter++;
 	}
 }
-void check_pointers() {
-	for(int i = 0; i<pointercounter; i++) {
-		u8* buffer = magic_pointers[i];
-		u32 magic = 0xDEADC0DE; // if we see this, thats bad
-		memcpy(&magic,buffer,4);
-		if(magic == MAGIC) {
-			/* fprintf(stderr,"pointer %d good, %d checked\n",i,goodpointers); */
-			goodpointers++;
-		}
-	}
-}
 
 void fill_data() {
 	for(int i = 0; i<pointercounter; i++) {
-		// declare struct stuff
 		u32 magic; 
 		u32 ip;
 		u16 status_code;
@@ -118,12 +105,13 @@ void fill_data() {
 		char* payload;
 
 		u8* magicptr = magic_pointers[i];
-		memcpy(&magic,magicptr+MAGIC_OFFSET,sizeof(u32)); // copy magic
+
+		memcpy(&magic,magicptr+MAGIC_OFFSET,sizeof(u32));
 		memcpy(&ip,magicptr+IP_OFFSET,sizeof(u32));
 		memcpy(&status_code,magicptr+STATUS_OFFSET,sizeof(u16));
 		memcpy(&payload_size,magicptr+PAYLOAD_SIZE_OFFSET,sizeof(u64));
+		
 		payload = malloc(payload_size*sizeof(char));	
-		// write payload
 		memcpy(payload,magicptr+PAYLOAD_OFFSET,payload_size);
 		
 		// create and populate struct
@@ -146,28 +134,17 @@ void free_payloads() {
 	}
 }
 
-
-void print_sites() {
-	for(int i = 0; i<pointercounter; i++) {
-		struct site_data site;
-		site = site_data_array[i];
-		/* fprintf(stderr, "magic: %X\n", site.magic); */
-		/* fprintf(stderr, "ip: %u\n", site.ip); */
-		/* fprintf(stderr, "status_code: %d\n", site.status_code); */
-		/* fprintf(stderr, "payload_size: %llu\n", site.payload_size); */
-		/* fprintf(stderr, "payload: %s\n", site.payload); */
-	}
-}
 void make_json() {
 	for(int i = 0; i<pointercounter; i++) {
 		struct site_data site = site_data_array[i];
-		// maybe should make all of these macros
 		u32 magic = site.magic;
 		u32 ip = site.ip;
 		u16 status = site.status_code;
 		u64 payload_sz = site.payload_size;
 		char* payload = site.payload;
-		// convert everything to strings	
+		
+		// Convert everything to strings	
+		
 		char ip_str[16];
 		memset(ip_str,0,16);
 		resolve_ip(ip,ip_str);	
@@ -185,10 +162,6 @@ void make_json() {
 		char i_str[i_length];
 		sprintf(i_str,"%d",i);
 
-		/* fprintf(stderr, "i: %d, i_length: %d\n", i, i_length); */
-		/* fprintf(stderr,"i_str: %s\n", i_str); */
-		/* fprintf(stderr,"ip_str: %s\n", ip_str); */
-		/* fprintf(stderr,"status_str: %s\n", status_str); */
 		json_object* jarray = json_object_new_array();
 		
 		json_object *j_ip_str = json_object_new_string(ip_str);
@@ -217,65 +190,44 @@ int main(int argc, char** argv) {
 		TRACE_MESSAGE("No output.sitedata file, run ISH first");
 		return 1;
 	}
-	// open
+	
 	FILE* file = fopen(FILENAME, "rb");	
-	// get size
+	
 	size_t fsz;
 	fseek(file, 0, SEEK_END);
 	fsz = ftell(file);
 	rewind(file);
+	
 	if(fsz == 0) {
 		TRACE_MESSAGE("No data in output.sitedata");
 		return 0;
 	}
-	// allocate memory
+
 	u8* full_buffer = malloc(fsz+1);
 	memset(full_buffer,0,fsz+1);	
 
-	// read in file
 	fread(full_buffer,fsz,1,file);
 	
-	// close file
 	fclose(file);
 
 	// create pointer array
 	size_t max_magic_numbers = ceil(fsz/(double)4.0);
 	magic_pointers = malloc(max_magic_numbers*sizeof(u8*));
 
-	// find magic numbers
 	find_magic(full_buffer, full_buffer+fsz, fsz);
 	
-	// check that the pointers actually point to magic numbers
-	/* check_pointers(); */
-	// stats
-	/* fprintf(stderr,"\ngoodpointers: %d\npointercounter: %d\n", goodpointers, pointercounter); */
-	/* if(goodpointers != pointercounter) { */
-	/* 	TRACE_ERROR("goodpointers != pointercounter"); */
-	/* 	free(magic_pointers); */
-	/* 	free(full_buffer); */
-	/* 	return -1; */
-	/* } */
-
-	// allocate site_data_array
 	site_data_array = malloc(pointercounter*sizeof(struct site_data));
 
-	// fill site_data_array
 	fill_data();
 
-	// check
-	print_sites();
-	// prepare jobj
-	jobj = json_object_new_object();	
-	// make json
+	jobj = json_object_new_object();
 	make_json();
 	const char* jsonstr = json_object_to_json_string(jobj);
 	
-	// write json to file
 	FILE* out_file = fopen("output.json", "w");
 	fwrite(jsonstr,strlen(jsonstr),1,out_file);
 	fclose(out_file);
 
-cleanup:
 	free(magic_pointers);
 	free(full_buffer);
 	free_payloads();

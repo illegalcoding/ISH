@@ -1,9 +1,16 @@
 CFLAGS = -O0 -pipe -pthread -lm
-all: ish parser
-ish: ish.c
-	$(CC) $(CFLAGS) ish.c -o ish
-parser: parser.c	
-	$(CC) $(CFLAGS) -o parser parser.c `pkg-config --cflags --libs json-c`
+
+all: ish
+
+ish: main.o ish.o
+    $(CC) $(CFLAGS) -o ish main.o inc.o
+
+main.o: main.c ish.h
+    $(CC) $(CFLAGS) -c main.c
+
+inc.o: inc.c inc.h
+    $(CC) $(CFLAGS) -c inc.c
+
 .PHONY:clean
 clean:
-	rm ish parser
+	rm ish *.o

@@ -181,7 +181,7 @@ void *block_watchdog ( void *thread_data )
             fclose ( file_out );
             /* TRACE_DEBUG("watchdog done"); */
             TRACE_MESSAGE ( "Done!" );
-            break
+            break;
         }
 
         usleep ( 50000 );

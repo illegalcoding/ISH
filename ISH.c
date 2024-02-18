@@ -54,7 +54,7 @@ int StartsCounter = 0;
 int EndsCounter = 0;
 
 int WatchdogDoExit = 0;
-int DoExit = 0;
+static int DoExit = 0;
 int AllDumped = 0;
 
 int ThreadsDone = 0;
@@ -80,7 +80,6 @@ struct SiteDataBlock Blocks[NUM_BLOCKS]; // Create 100 Blocks
 
 // Forward declarations
 void *ScanRange(void* RangePtr);
-void ResolveIP(u32 ip, char* output);
 int SplitRange(u32 StartIP, u32 EndIP);
 void InitBlocks();
 void* BlockWatchdog(void* ThreadData);

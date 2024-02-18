@@ -31,9 +31,9 @@
 #ifndef ISH_SSL_H
 #define ISH_SSL_H
 #include <stdint.h>
-struct scan_https_data {
+struct ScanHTTPSData {
 	uint32_t ip;
 };
-typedef struct scan_https_data scan_https_data;
-void* scan_https(void* td_data);
+typedef struct ScanHTTPSData ScanHTTPSData;
+void* ScanHTTPS(void* td_Data);
 #endif

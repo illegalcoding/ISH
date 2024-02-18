@@ -47,7 +47,7 @@
 #include "Request.h"
 #include <errno.h>
 
-int DoExit = 1;
+static int DoExit = 1;
 
 void* ScanHTTPS(void* td_Data) {
 	/* Copy ip from td_data */

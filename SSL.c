@@ -53,7 +53,7 @@ void* ScanHTTPS(void* td_Data) {
 	/* Copy ip from td_data */
 	struct timespec TsStart;
 	clock_gettime(CLOCK_REALTIME,&TsStart);
-	scan_https_data Data = *(scan_https_data*)td_Data;
+	ScanHTTPSData Data = *(ScanHTTPSData*)td_Data;
 	u32 IP = Data.ip;
 	free(td_Data);
 	

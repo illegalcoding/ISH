@@ -28,6 +28,7 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#include <locale.h>
 #include <stdio.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -88,6 +89,8 @@ void WriteData(struct SiteData* data);
 int FindFreeBlockIndex();
 int CheckContentLengthHeader(char* Header);
 int FindHeaderEndOffset(char* Payload, size_t PayloadSize);
+int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead);
+int LocationParser(char* Buffer, size_t BufferSize, char** Output);
 
 /* Initialize Blocks to not in use */
 void InitBlocks() {
@@ -195,7 +198,7 @@ int FindHeaderEndOffset(char* Payload, size_t PayloadSize) {
 	return HeaderEndIndex;
 }
 
-int content_length_parser(char* Payload, size_t PayloadSize, size_t all_read) {
+int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead) {
 	char* ContentLengthHeader;
 	ContentLengthHeader = malloc(15+1);
 	memset(ContentLengthHeader,0,15+1);
@@ -263,7 +266,7 @@ int content_length_parser(char* Payload, size_t PayloadSize, size_t all_read) {
 	}
 	
 	size_t AllHeadersSize = HeaderEndOffset;
-	size_t DataSize = all_read-AllHeadersSize;
+	size_t DataSize = AllRead-AllHeadersSize;
 	if(NumBytes != DataSize-1) { /* No clue why we need the -1 */
 		/* This isn't the last packet */
 		free(StrNumBytes);
@@ -278,7 +281,77 @@ int content_length_parser(char* Payload, size_t PayloadSize, size_t all_read) {
 	free(FullHeader);
 	return 0;
 }
+int CheckLocationHeader(char* LocationHeader) {
+	char LowerCaseHeader[16];
+	memset(LowerCaseHeader,0,16);
+	for(int i = 0; i<15; i++) {
+		LowerCaseHeader[i] = tolower(LocationHeader[i]);
+	}
+	int CmpResult = strcmp(LowerCaseHeader,"location:");
+	if(CmpResult == 0) {
+		return 0;
+	} else {
+		return 1;
+	}
+}
 
+int LocationParser(char* Buffer, size_t BufferSize, char** Output) {
+	char* LocationHeader = malloc(9+1);
+	memset(LocationHeader,0,9+1);
+	char* LocationHeaderBegin = 0;
+	char* BufferEnd = Buffer+BufferSize;
+
+	for(int i = 0; i<BufferSize; i++) {
+		if(i+9 < BufferSize) {
+			memcpy(LocationHeader,&Buffer[i],9); /* Copy "Location:" */
+			int rv = CheckLocationHeader(LocationHeader);
+			if(rv == 0) {
+				/* We have the location header */
+				LocationHeaderBegin = &Buffer[i];
+			}
+		}
+	}
+
+	if(LocationHeaderBegin == 0) {
+		free(LocationHeader);
+		return -1;
+	}
+
+	/* Find CRLF after header */
+	char* CurrentChar = LocationHeaderBegin;
+	char* LocationHeaderEnd = 0;
+	while(CurrentChar <= BufferEnd) {
+		/* fprintf(stderr,"Offset: %ld, CurrentChar: %02X\n",CurrentChar-LocationHeaderBegin,*CurrentChar); */
+		if(CurrentChar != LocationHeaderBegin) {
+			if(*CurrentChar == 0x0A && *(CurrentChar-1) == 0x0D) {
+				LocationHeaderEnd = CurrentChar;
+				break;
+			}
+		}
+		CurrentChar++;
+	}
+	if(LocationHeaderEnd == 0) {
+		TRACE_ERROR("Couldn't find CRLF after Location header");
+		free(LocationHeader);
+		return -1;
+	}
+	size_t LocationHeaderSize = LocationHeaderEnd-LocationHeaderBegin;
+	size_t URLSize = LocationHeaderSize-strlen("Location: ");
+	
+	char* URL = malloc(URLSize+1);
+	memset(URL,0,URLSize+1);
+	
+	char* URLBegin = LocationHeaderBegin+strlen("Location: ");
+	memcpy(URL,URLBegin,URLSize);
+	
+	*Output = malloc(URLSize+1);
+	memset(*Output,0,URLSize+1);
+	memcpy(*Output,URL,URLSize);
+
+	free(URL);
+	free(LocationHeader);
+	return URLSize;	
+}
 void* ScanRange(void* RangePtr) {
 	ThreadsRunning++;
 
@@ -453,7 +526,7 @@ void* ScanRange(void* RangePtr) {
 					memset(CombFront,0,BufferSize);
 					memcpy(CombFront,Buffer,BufferSize);
 					
-					int rv = content_length_parser(FirstBuffer, FirstBufferSize, FullSize);	
+					int rv = ContentLengthParser(FirstBuffer, FirstBufferSize, FullSize);	
 					if(rv == 0) {
 						Done = 1;
 					} else if(rv == -1) {
@@ -478,7 +551,7 @@ void* ScanRange(void* RangePtr) {
 					CombFrontSize=CombFrontSize-1+BufferSize;	
 					Swap = NULL;
 					
-					int rv = content_length_parser(FirstBuffer, FirstBufferSize, FullSize);	
+					int rv = ContentLengthParser(CombFront, CombFrontSize, FullSize);	
 					if(rv == 0) {
 						Done = 1;
 					} else if(rv == -1) {
@@ -573,6 +646,12 @@ void* ScanRange(void* RangePtr) {
 			
 			NumStatusCode = 301;
 			fprintf(stderr, "%s returned 301\n", ResolvedRedirectIP);
+			
+			char* URL;
+			int URLSize = LocationParser(CombFront, CombFrontSize, &URL);
+			/* Spin up SSL thread here, pass URL by struct that thread frees */
+			free(URL);
+
 		}
 		
 		if(ReadCount > 1) {

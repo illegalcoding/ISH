@@ -51,8 +51,8 @@ int DoExit = 1;
 
 void* ScanHTTPS(void* td_Data) {
 	/* Copy ip from td_data */
-	struct timespec ts_start;
-	clock_gettime(CLOCK_REALTIME,&ts_start);
+	struct timespec TsStart;
+	clock_gettime(CLOCK_REALTIME,&TsStart);
 	scan_https_data Data = *(scan_https_data*)td_Data;
 	u32 IP = Data.ip;
 	free(td_Data);
@@ -127,11 +127,11 @@ void* ScanHTTPS(void* td_Data) {
 	while(errno == EINPROGRESS || errno == EALREADY && TimedOut != 1) {
 		Status = connect(Sockfd,(struct sockaddr*)&ServAddr,sizeof(ServAddr));
 		
-		struct timespec current;
-		clock_gettime(CLOCK_REALTIME,&current);
-		double seconds = (current.tv_sec - ts_start.tv_sec) + (current.tv_nsec - ts_start.tv_nsec) / 1e9;
+		struct timespec Current;
+		clock_gettime(CLOCK_REALTIME,&Current);
+		double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
 		
-		if(seconds > TIMEOUT_TIME || DoExit == 1) {
+		if(Seconds > TIMEOUT_TIME || DoExit == 1) {
 			TimedOut = 1;
 		}
 		usleep(1000*100);

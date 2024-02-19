@@ -1,3 +1,4 @@
+
 # ISH
 ISH (or Internet Scanner for HTTP) scans an assigned IP range for HTTP/HTTPS web servers.
 ## Usage:
@@ -16,6 +17,8 @@ ISH saves in a binary output format so a parser is needed to convert this to a c
 - IP address (The IP address of the server)
 - HTTP(S) response code (The response code the server sent)
 - Response text (The full response text the server sent, including the headers)
+
+To convert from the binary format to JSON, you just need to run the parser and it will create a file called `output.json`.
 ## Dependencies
 - json-c
 - OpenSSL

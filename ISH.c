@@ -96,15 +96,6 @@ int FindHeaderEndOffset(char* Payload, size_t PayloadSize);
 int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead);
 size_t LocationParser(char* Buffer, size_t BufferSize, char** Output);
 
-void PrintHex(char* Buffer) {
-	char* CurrentChar = Buffer;
-	while(*CurrentChar != '\0') {
-		fprintf(stderr,"%02X",*CurrentChar);
-		CurrentChar++;
-	}
-	fprintf(stderr,"\n");
-}
-
 /* Initialize Blocks to not in use */
 void InitBlocks() {
 	for(int i = 0; i < NUM_BLOCKS; i++) {

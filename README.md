@@ -10,7 +10,7 @@ Options:
 	-t <thread count> Set thread count.
 ```
 ## Using the parser
-ISH saves in a binary output format so a parser is needed to convert this to a common format other programs can understand. The format the parser uses for this is JSON.\
+ISH saves in a binary output format so a parser is needed to convert this to a common format other programs can understand. The format the parser uses for this is JSON.
 ### The elements of the JSON array:
 - HTTP/HTTPS (Indicates whether the server is HTTP or HTTPS)
 - IP address (The IP address of the server)

@@ -800,7 +800,7 @@ int SplitRange(u32 StartIP, u32 EndIP) {
 
 void usage() {
 	fprintf(stderr,"Usage:\n");
-	fprintf(stderr,"\tish [-s StartIP][-e EndIP][-t thread_count]\n");
+	fprintf(stderr,"\tish [-s Start IP] [-e End IP] [-t Thread count]\n");
 	fprintf(stderr,"Options:\n");
 	fprintf(stderr,"\t-s <ip>\tSet starting IP address.\n");
 	fprintf(stderr,"\t-e <ip>\tSet end IP address.\n");

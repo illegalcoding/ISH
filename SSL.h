@@ -30,10 +30,18 @@
  */
 #ifndef ISH_SSL_H
 #define ISH_SSL_H
+#include "Shared.h"
 #include <stdint.h>
+#include <pthread.h>
+#define SSL_TIMEOUT_TIME TIMEOUT_TIME
 struct ScanHTTPSData {
-	uint32_t ip;
+	uint32_t IP;
+};
+struct SSLThreadBlock {
+	pthread_t** Thread;
+	int InUse;
 };
 typedef struct ScanHTTPSData ScanHTTPSData;
-void* ScanHTTPS(void* td_Data);
+typedef struct SSLThreadBlock SSLThreadBlock;
+char* ScanHTTPS(char* URL, size_t URLSize);
 #endif

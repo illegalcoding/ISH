@@ -29,7 +29,6 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include <netinet/in.h>
-#include <openssl/tls1.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -46,132 +45,241 @@
 #include "Shared.h"
 #include "Request.h"
 #include <errno.h>
+#include <sys/ioctl.h>
 
-static int DoExit = 1;
+static int DoExit = 0;
+extern int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead);
+#define PORT 443
+#define PORT_STR "443"
 
-void* ScanHTTPS(void* td_Data) {
-	/* Copy ip from td_data */
+char* ScanHTTPS(char* URL, size_t URLSize) {
 	struct timespec TsStart;
 	clock_gettime(CLOCK_REALTIME,&TsStart);
-	ScanHTTPSData Data = *(ScanHTTPSData*)td_Data;
-	u32 IP = Data.ip;
-	free(td_Data);
+	/* fprintf(stderr,"ScanHTTPS called with URL: %s, URLSize: %lu\n",URL, URLSize); */
+	char* URLStripped = malloc(URLSize-8+1); /* URLSize-strlen("https://") */
+	memset(URLStripped,0,URLSize-8+1);
 	
-	/* Disable SIGPIPE */
-	signal(SIGPIPE, SIG_IGN);
+	strncpy(URLStripped,URL+8,URLSize-9);
+	/* memcpy(URLStripped,&URL+8,URLSize-8); */
+	free(URL);
+	
+	/* fprintf(stderr,"URLStripped: %s\n",URLStripped); */
 
-	/* Make request */
+	signal(SIGPIPE,SIG_IGN);
+
+	int Status;
+	int TimedOut = 0;
+	SSL_CTX* Ctx = NULL;
+	SSL* SSL = NULL;
+	const SSL_METHOD* Method = TLS_client_method();
+	Ctx = SSL_CTX_new(Method);
+
+	SSL_CTX_set_verify(Ctx,SSL_VERIFY_NONE,NULL);
+	SSL_CTX_set_options(Ctx, SSL_OP_ALL);
+	SSL_CTX_ctrl(Ctx,BIO_C_SET_NBIO,1,NULL);
+	
+	SSL = SSL_new(Ctx);
+
+	struct sockaddr_in Addr;
+	int Socket = socket(AF_INET,SOCK_STREAM|SOCK_NONBLOCK,0);
+	Addr.sin_family = AF_INET;
+	Addr.sin_port = htons(PORT);
+
+	struct addrinfo Hints;
+	struct addrinfo* Res;
+	memset(&Hints,0,sizeof(Hints));
+	Hints.ai_family = AF_INET;
+	Hints.ai_socktype = SOCK_STREAM;
+	Status = getaddrinfo(URLStripped,PORT_STR,&Hints,&Res);
+	if(Status != 0) {
+		fprintf(stderr, "getaddrinfo returned %d\n",Status);
+		fprintf(stderr,"gai_strerror: %s\n",gai_strerror(Status));
+		SSL_free(SSL);
+		SSL_CTX_free(Ctx);
+		close(Socket);
+		free(URLStripped);
+		return NULL;
+	}
+
+	struct sockaddr_in* ResolvedAddr = ((struct sockaddr_in*)Res->ai_addr);
+	Addr.sin_addr = ResolvedAddr->sin_addr;
+
+	Status = connect(Socket,(struct sockaddr*)&Addr,sizeof(Addr));
+
+	SSL_set_fd(SSL,Socket);
+	SSL_set_tlsext_host_name(SSL, URLStripped);
+	Status = SSL_connect(SSL);
+	if(Status != 1) {
+		int err = SSL_get_error(SSL,Status);
+		while(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+			struct timespec Current;
+			clock_gettime(CLOCK_REALTIME, &Current);
+			double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
+
+			if(Seconds > TIMEOUT_TIME || DoExit == 1) {
+				TimedOut = 1;
+			} 
+			Status = SSL_connect(SSL);
+			err = SSL_get_error(SSL,Status);
+			usleep(1000*100);
+		}
+	}
+	if(TimedOut) {
+		TRACE_DEBUG("SSL_connect timed out");
+		SSL_free(SSL);
+		SSL_CTX_free(Ctx);
+		close(Socket);
+		free(URLStripped);
+		return NULL;
+	}
+
+	/* Build Request header */
 	char* RequestBuffer;
-	char ResolvedIP[16];
-	memset(ResolvedIP,0,16);
-	ResolveIP(IP,ResolvedIP);
-
 	size_t NumHeaders = 1;
-	HTRequest* Request = malloc(sizeof(HTRequest));	
-	HTRequestHeader* Headers = malloc(sizeof(HTRequestHeader)*NumHeaders);
+	HTRequest* Request = malloc(sizeof(HTRequest));
 	HTRequestHeader* HostHeader = malloc(sizeof(HTRequestHeader));
-	
+	HTRequestHeader* Headers = malloc(sizeof(HTRequestHeader)*NumHeaders);
 	Request->NumHeaders = NumHeaders;
 	Request->RequestLine.Method = "GET";
 	Request->RequestLine.URI = "/";
 	Request->RequestLine.Version = "HTTP/1.1";
-
-	Request->Headers = Headers;
 	
+	Request->Headers = Headers;
+
 	HostHeader->Field = "Host";
-	HostHeader->Value = ResolvedIP; 
+	HostHeader->Value = URLStripped;
 
+	
 	Request->Headers[0] = *HostHeader;
-
+	
 	size_t RequestLength = SerializeRequest(&RequestBuffer, Request);
 	
 	free(Request);
-	free(Headers);
 	free(HostHeader);
+	free(Headers);
 
-	/* Init TLS */
-	SSL_CTX* Ctx = NULL;
-	SSL* SSL = NULL;
-	int Sockfd = 0;
-	int Status = 0;
-	int TimedOut = 0;
-
-	const SSL_METHOD* method = TLS_client_method();
-	Ctx = SSL_CTX_new(method);
-
-	/* Disable cert verification */
-	SSL_CTX_set_verify(Ctx, SSL_VERIFY_NONE, NULL);
+	/* fprintf(stderr,"Writing %s\n",RequestBuffer); */
+	Status = SSL_write(SSL,RequestBuffer,RequestLength);
 	
-	SSL_CTX_set_options(Ctx, SSL_OP_ALL);
-	
+	if(Status <= 0) {
+		int err = SSL_get_error(SSL,Status);
+		/* fprintf(stderr,"SSL_write failed with err %d\n", err); */
+		if(err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
+			/* fprintf(stderr,"Errno: %d: %s\nEAGAIN: %d",errno,strerror(errno),EAGAIN); */
+			while(errno == EAGAIN && !TimedOut) {
+				struct timespec Current;
+				clock_gettime(CLOCK_REALTIME, &Current);
+				double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
 
-	SSL = SSL_new(Ctx);
-
-	struct sockaddr_in ServAddr;
-
-	Sockfd = socket(AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0);
-	if(Sockfd < 0) {
-		TRACE_ERROR("scan_https: socket() failed");
-		free(RequestBuffer);
-		return 0;
+				if(Seconds > TIMEOUT_TIME || DoExit == 1) {
+					TimedOut = 1;
+				} 
+				Status = SSL_write(SSL,RequestBuffer,RequestLength);
+				err = SSL_get_error(SSL, Status);
+			}
+		}
 	}
-	
-	struct in_addr Address;
-	Address.s_addr = htonl(IP);
+	free(RequestBuffer);
+	if(TimedOut) {
+		TRACE_DEBUG("SSL_write timed out");
+		SSL_free(SSL);
+		SSL_CTX_free(Ctx);
+		close(Socket);
+		free(URLStripped);
+		return NULL;
+	}
 
-	ServAddr.sin_family = AF_INET;
-	ServAddr.sin_port = htons(443);
-	ServAddr.sin_addr = Address;
-
-	Status = connect(Sockfd,(struct sockaddr*)&ServAddr,sizeof(ServAddr));
-	while(errno == EINPROGRESS || errno == EALREADY && TimedOut != 1) {
-		Status = connect(Sockfd,(struct sockaddr*)&ServAddr,sizeof(ServAddr));
-		
+	size_t DataRead = 0;
+	unsigned int ReadCounter = 0;
+	char* Buffer = malloc(4096+1);
+	memset(Buffer,0,4096+1);
+	size_t AllRead = 0;
+	char* CombFront;
+	size_t CombFrontSize;
+	char* CombBack;
+	size_t CombBackSize;
+	char* Swap;
+	int Done = 0;
+	while(!Done && !TimedOut) {
 		struct timespec Current;
-		clock_gettime(CLOCK_REALTIME,&Current);
+		clock_gettime(CLOCK_REALTIME, &Current);
 		double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
-		
+
 		if(Seconds > TIMEOUT_TIME || DoExit == 1) {
 			TimedOut = 1;
 		}
-		usleep(1000*100);
-	}
-	if(TimedOut == 1) {
-		close(Sockfd);
-		free(RequestBuffer);
-		SSL_free(SSL);
-		SSL_CTX_free(Ctx);
-		return 0;
-	}
-	SSL_set_fd(SSL, Sockfd);
-	SSL_set_tlsext_host_name(SSL, ResolvedIP);
-	Status = SSL_connect(SSL);
-	if (Status != 1)
-	{
-		SSL_get_error(SSL, Status);
-		ERR_print_errors_fp(stderr);
-		fprintf(stderr, "SSL_connect failed with: %d\n", Status);
-		fprintf(stderr, "Errno is %d, %s\n",errno,strerror(errno));
-		close(Sockfd);
-		free(RequestBuffer);
-		SSL_free(SSL);
-		SSL_CTX_free(Ctx);
-		return 0;
-	}
-	Status = SSL_write(SSL,RequestBuffer,RequestLength);
-	if(Status < 0) {
-		int err = SSL_get_error(SSL,Status);
-		switch(err) {
-			case SSL_ERROR_WANT_READ:
-			case SSL_ERROR_WANT_WRITE:
-				TRACE_ERROR("SSL_ERROR_WANT_READ||SSL_ERROR_WANT_WRITE");
-				break;
-		}
-	}
-	/* Do read here */
+		Status = SSL_read_ex(SSL,Buffer,4096,&DataRead);
+		int err = SSL_get_error(SSL, Status);
+		while(err == SSL_ERROR_WANT_READ && !TimedOut && DataRead == 0) {
+			clock_gettime(CLOCK_REALTIME, &Current);
+			double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
 
+			if(Seconds > TIMEOUT_TIME || DoExit == 1) {
+				TimedOut = 1;
+			}
+			Status = SSL_read_ex(SSL,Buffer,4096,&DataRead);
+			err = SSL_get_error(SSL, Status);
+		}
+		if(DataRead > 0) {
+			ReadCounter++;
+			AllRead += DataRead;
+			/* fprintf(stderr, "DataRead: %lu\n",DataRead); */
+			if(ReadCounter == 1) {
+				CombFront = malloc(DataRead+1);
+				CombFrontSize = DataRead;
+				memset(CombFront,0,DataRead+1);
+				memcpy(CombFront,Buffer,DataRead);
+				int rv = ContentLengthParser(CombFront, CombFrontSize, AllRead);	
+				if(rv == 0) {
+					Done = 1;
+				} else if(rv == -1) {
+					continue;
+				}
+			} else {
+				if(ReadCounter > 2) {
+					free(CombBack);
+				}
+				CombBack = malloc(CombFrontSize+DataRead+1);
+				memset(CombBack,0,CombFrontSize+DataRead+1);
+				memcpy(CombBack,CombFront,CombFrontSize);
+				memcpy(CombBack+CombFrontSize,Buffer,DataRead);
+				CombBackSize = CombFrontSize+DataRead;
+				Swap = CombBack;
+				CombBack = CombFront;
+				CombFront = Swap;
+				CombFrontSize = CombBackSize;	
+				Swap = NULL;
+				int rv = ContentLengthParser(CombFront, CombFrontSize, AllRead);	
+				if(rv == 0) {
+					Done = 1;
+				} else if(rv == -1) {
+					continue;
+				}
+				
+			}
+		}
+		memset(Buffer,0,4096+1);
+		usleep(50*1000);
+	}
+	free(Buffer);
+	if(ReadCounter > 1) {
+		free(CombBack);
+	}
+	/* fprintf(stderr,"CombFront: %s\n",CombFront); */
+	if(TimedOut) {
+		TRACE_DEBUG("SSL_read timed out");	
+	}
+	if(AllRead == 0) {
+		SSL_free(SSL);
+		SSL_CTX_free(Ctx);
+		close(Socket);
+		free(URLStripped);
+		return NULL;	
+	}
+	
 	SSL_free(SSL);
-	close(Sockfd);
 	SSL_CTX_free(Ctx);
-	return 0;	
+	close(Socket);
+	free(URLStripped);
+	return CombFront;	
 }

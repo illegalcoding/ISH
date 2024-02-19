@@ -56,6 +56,7 @@ struct SiteData {
 	u16 StatusCode;
 	u64 PayloadSize;
 	char* Payload;
+	u8 flags; /* 0x0 = HTTP, 0x1 = HTTPS */
 };
 
 struct SiteDataBlock {

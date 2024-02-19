@@ -28,7 +28,6 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include <locale.h>
 #include <stdio.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -44,6 +43,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <ctype.h>
+#include "SSL.h"
 #include "Shared.h"
 #include "Request.h"
 
@@ -64,6 +64,7 @@ int ThreadsRunning = 0;
 
 FILE* FileOut;
 
+
 void SignalHandler(int SigNum) {
 	fprintf(stderr, "Signal caught, exiting...\n");
 	DoExit = 1;	
@@ -75,6 +76,9 @@ struct IPRange {
 	int Tid;
 };
 
+#define NUM_SSL_THREADS 10
+SSLThreadBlock SSLThreadBlocks[NUM_SSL_THREADS];
+
 #define NUM_BLOCKS 100
 struct SiteDataBlock Blocks[NUM_BLOCKS]; // Create 100 Blocks
 
@@ -82,19 +86,36 @@ struct SiteDataBlock Blocks[NUM_BLOCKS]; // Create 100 Blocks
 void *ScanRange(void* RangePtr);
 int SplitRange(u32 StartIP, u32 EndIP);
 void InitBlocks();
+void InitSSLThreadBlocks();
 void* BlockWatchdog(void* ThreadData);
 void ClearBlock(struct SiteDataBlock* block);
 void WriteData(struct SiteData* data);
 int FindFreeBlockIndex();
+int FindFreeSSLBlockIndex();
 int CheckContentLengthHeader(char* Header);
 int FindHeaderEndOffset(char* Payload, size_t PayloadSize);
 int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead);
-int LocationParser(char* Buffer, size_t BufferSize, char** Output);
+size_t LocationParser(char* Buffer, size_t BufferSize, char** Output);
+
+void PrintHex(char* Buffer) {
+	char* CurrentChar = Buffer;
+	while(*CurrentChar != '\0') {
+		fprintf(stderr,"%02X",*CurrentChar);
+		CurrentChar++;
+	}
+	fprintf(stderr,"\n");
+}
 
 /* Initialize Blocks to not in use */
 void InitBlocks() {
 	for(int i = 0; i < NUM_BLOCKS; i++) {
 		Blocks[i].InUse = 0;
+	}
+}
+
+void InitSSLThreadBlocks() {
+	for(int i = 0; i<NUM_SSL_THREADS; i++) {
+		SSLThreadBlocks[i].InUse = 0;
 	}
 }
 
@@ -107,6 +128,16 @@ int FindFreeBlockIndex() {
 	}
 	return -1;
 }
+
+int FindFreeSSLBlockIndex() {
+	for(int i = 0; i<NUM_SSL_THREADS; i++) {
+		if(SSLThreadBlocks[i].InUse == 0) {
+			return i;
+		}
+	}
+	return -1;
+}
+
 
 /* Watchdog for freeing Blocks in use */
 void* BlockWatchdog(void* ThreadData) {
@@ -294,7 +325,7 @@ int CheckLocationHeader(char* LocationHeader) {
 	}
 }
 
-int LocationParser(char* Buffer, size_t BufferSize, char** Output) {
+size_t LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 	char* LocationHeader = malloc(9+1);
 	memset(LocationHeader,0,9+1);
 	char* LocationHeaderBegin = 0;
@@ -313,7 +344,7 @@ int LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 
 	if(LocationHeaderBegin == 0) {
 		free(LocationHeader);
-		return -1;
+		return -2;
 	}
 
 	/* Find CRLF after header */
@@ -332,7 +363,7 @@ int LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 	if(LocationHeaderEnd == 0) {
 		TRACE_ERROR("Couldn't find CRLF after Location header");
 		free(LocationHeader);
-		return -1;
+		return -2;
 	}
 	size_t LocationHeaderSize = LocationHeaderEnd-LocationHeaderBegin;
 	size_t URLSize = LocationHeaderSize-strlen("Location: ");
@@ -345,7 +376,7 @@ int LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 	
 	*Output = malloc(URLSize+1);
 	memset(*Output,0,URLSize+1);
-	memcpy(*Output,URL,URLSize);
+	memcpy(*Output,URL,URLSize-1);
 
 	free(URL);
 	free(LocationHeader);
@@ -440,7 +471,7 @@ void* ScanRange(void* RangePtr) {
 			if(Seconds > TIMEOUT_TIME || DoExit == 1) {
 				TimedOut = 1;
 			} 
-			usleep(1000*100); // sleep 100th of a second
+			usleep(1000*100);
 		}
 		if(TimedOut == 1) {
 			Counter++;
@@ -647,10 +678,24 @@ void* ScanRange(void* RangePtr) {
 			fprintf(stderr, "%s returned 301\n", ResolvedRedirectIP);
 			
 			char* URL;
-			int URLSize = LocationParser(CombFront, CombFrontSize, &URL);
-			/* Spin up SSL thread here, pass URL by struct that thread frees */
-			free(URL);
-
+			size_t URLSize = LocationParser(CombFront, CombFrontSize, &URL);
+			char* Response = NULL;
+			/* fprintf(stderr, "URL as hex: "); */
+			/* PrintHex(URL); */
+			/* fprintf(stderr,"URLSize: %lu\n",URLSize); */
+			if(URLSize > 0) {
+				/*
+				 * This is a hack; LocationParser seems to accidentally include a 0D at the end of the URL, 
+				 * but I made it copy 1 less byte to Output and didn't change the size, so we need to subtract 1.
+				 *
+				 */
+				Response = ScanHTTPS(URL, URLSize-1);
+			}
+			if(Response != NULL) {
+				/* Parse out SiteData attributes and write them */
+				fprintf(stderr,"ScanHTTPS returned buffer: %s\n",Response);	
+				free(Response);
+			}
 		}
 		
 		if(ReadCount > 1) {
@@ -927,6 +972,7 @@ int main(int argc, char** argv) {
 	pthread_t Threads[ThreadsPossible];
 	
 	InitBlocks();
+	InitSSLThreadBlocks();
 
 	FileOut = fopen("output.sitedata", "wb");
 	

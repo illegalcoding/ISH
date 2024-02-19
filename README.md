@@ -11,7 +11,7 @@ Options:
 ```
 ## Using the parser
 ISH saves in a binary output format so a parser is needed to convert this to a common format other programs can understand. The format the parser uses for this is JSON.\
-### The elements of the JSON array are as follows:
+### The elements of the JSON array:
 - HTTP/HTTPS (Indicates whether this server is HTTP or HTTPS)
 - IP address
 - HTTP(S) response code

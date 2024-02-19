@@ -39,7 +39,7 @@
 #define MAGIC 0x5173B10C
 
 #define TRACE_ERROR(STR) fprintf(stderr,"ERROR: %s\n",STR);
-#define TRACE_WARNING(STR) fprintf(stderr,"Warning: %s\n",STR);
+#define TRACE_WARNING(STR) printf("Warning: %s\n",STR);
 #define TRACE_DEBUG(STR) fprintf(stderr,"Debug: %s\n",STR);
 #define TRACE_MESSAGE(STR) fprintf(stdout,"%s\n",STR);
 

@@ -224,7 +224,7 @@ int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead) {
 	}
 
 	if(!Found) {
-		TRACE_ERROR("Couldn't find content-length");
+		TRACE_WARNING("Couldn't find content-length");
 		free(ContentLengthHeader);
 		return -1;
 	}
@@ -236,7 +236,7 @@ int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead) {
 
 	while(c != '\r' && c != '\n') {
 		if(FoundOffset+Counter > PayloadSize-1) {
-			TRACE_ERROR("no newline after content-length")
+			TRACE_WARNING("no newline after content-length")
 			free(ContentLengthHeader);
 			return -1;
 		}
@@ -336,7 +336,7 @@ size_t LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 		CurrentChar++;
 	}
 	if(LocationHeaderEnd == 0) {
-		TRACE_ERROR("Couldn't find CRLF after Location header");
+		TRACE_WARNING("Couldn't find CRLF after Location header");
 		free(LocationHeader);
 		return -2;
 	}
@@ -391,7 +391,7 @@ void* ScanRange(void* RangePtr) {
 		char ResolvedIP[16];
 		ResolveIP(IP,ResolvedIP);
 
-		fprintf(stderr,"thread %d scanning ip: %s\n", Tid, ResolvedIP);
+		printf("Thread %d scanning ip: %s\n", Tid, ResolvedIP);
 		/* Make request */
 		size_t NumHeaders = 1;
 		char* RequestBuffer;
@@ -605,6 +605,7 @@ void* ScanRange(void* RangePtr) {
 		if(NumStatusCode == 0  || NumStatusCode > 599) {
 			fprintf(stderr,"Malformed status code from %s\n",ResolvedIP);
 		}
+		printf("%s returned %d\n",ResolvedIP,NumStatusCode);
 		int DoneHTTPS = 0;
 		if(RedirectResult == 0) {
 			char ResolvedRedirectIP[16];
@@ -612,7 +613,7 @@ void* ScanRange(void* RangePtr) {
 			ResolveIP(IP, ResolvedRedirectIP);
 			
 			NumStatusCode = 301;
-			fprintf(stderr, "%s returned 301\n", ResolvedRedirectIP);
+			/* fprintf(stderr, "%s returned 301\n", ResolvedRedirectIP); */
 			
 			char* URL;
 			size_t URLSize = LocationParser(CombFront, CombFrontSize, &URL);
@@ -655,6 +656,7 @@ void* ScanRange(void* RangePtr) {
 				strncpy(StatusCode,&Response[9],3);
 				int NumStatusCode = 0;
 				NumStatusCode = atoi(StatusCode);
+				printf("%s returned %d on HTTPS\n",ResolvedIP,NumStatusCode);
 				if(NumStatusCode == 0  || NumStatusCode > 599) {
 					fprintf(stderr,"Malformed status code from %s\n",ResolvedIP);
 					DoneHTTPS = 0;

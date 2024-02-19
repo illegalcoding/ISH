@@ -802,9 +802,9 @@ void usage() {
 	fprintf(stderr,"Usage:\n");
 	fprintf(stderr,"\tish [-s Start IP] [-e End IP] [-t Thread count]\n");
 	fprintf(stderr,"Options:\n");
-	fprintf(stderr,"\t-s <ip>\tSet starting IP address.\n");
-	fprintf(stderr,"\t-e <ip>\tSet end IP address.\n");
-	fprintf(stderr,"\t-t <thread count>\tSet thread count.\n");
+	fprintf(stderr,"\t-s <ip> Set starting IP address.\n");
+	fprintf(stderr,"\t-e <ip> Set end IP address.\n");
+	fprintf(stderr,"\t-t <thread count> Set thread count.\n");
 	exit(1);
 }
 

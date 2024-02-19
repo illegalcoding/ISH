@@ -91,7 +91,6 @@ void* BlockWatchdog(void* ThreadData);
 void ClearBlock(struct SiteDataBlock* block);
 void WriteData(struct SiteData* data);
 int FindFreeBlockIndex();
-int FindFreeSSLBlockIndex();
 int CheckContentLengthHeader(char* Header);
 int FindHeaderEndOffset(char* Payload, size_t PayloadSize);
 int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead);
@@ -113,12 +112,6 @@ void InitBlocks() {
 	}
 }
 
-void InitSSLThreadBlocks() {
-	for(int i = 0; i<NUM_SSL_THREADS; i++) {
-		SSLThreadBlocks[i].InUse = 0;
-	}
-}
-
 /* Find the first free block */
 int FindFreeBlockIndex() {
 	for(int i = 0; i<NUM_BLOCKS; i++) {
@@ -128,16 +121,6 @@ int FindFreeBlockIndex() {
 	}
 	return -1;
 }
-
-int FindFreeSSLBlockIndex() {
-	for(int i = 0; i<NUM_SSL_THREADS; i++) {
-		if(SSLThreadBlocks[i].InUse == 0) {
-			return i;
-		}
-	}
-	return -1;
-}
-
 
 /* Watchdog for freeing Blocks in use */
 void* BlockWatchdog(void* ThreadData) {
@@ -693,7 +676,7 @@ void* ScanRange(void* RangePtr) {
 			}
 			if(Response != NULL) {
 				/* Parse out SiteData attributes and write them */
-				fprintf(stderr,"ScanHTTPS returned buffer: %s\n",Response);	
+				/* fprintf(stderr,"ScanHTTPS returned buffer: %s\n",Response); */	
 				free(Response);
 			}
 		}
@@ -972,7 +955,6 @@ int main(int argc, char** argv) {
 	pthread_t Threads[ThreadsPossible];
 	
 	InitBlocks();
-	InitSSLThreadBlocks();
 
 	FileOut = fopen("output.sitedata", "wb");
 	

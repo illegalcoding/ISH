@@ -52,7 +52,7 @@ extern int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead
 #define PORT 443
 #define PORT_STR "443"
 
-char* ScanHTTPS(char* URL, size_t URLSize) {
+char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	struct timespec TsStart;
 	clock_gettime(CLOCK_REALTIME,&TsStart);
 	/* fprintf(stderr,"ScanHTTPS called with URL: %s, URLSize: %lu\n",URL, URLSize); */
@@ -281,5 +281,6 @@ char* ScanHTTPS(char* URL, size_t URLSize) {
 	SSL_CTX_free(Ctx);
 	close(Socket);
 	free(URLStripped);
-	return CombFront;	
+	*ResponseSize = CombFrontSize;
+	return CombFront;
 }

@@ -42,10 +42,11 @@
 #define FILENAME "output.sitedata"
 
 #define MAGIC_OFFSET 0
-#define IP_OFFSET 4
-#define STATUS_OFFSET 8
-#define PAYLOAD_SIZE_OFFSET 10
-#define PAYLOAD_OFFSET 18
+#define HTTPS_OFFSET 4
+#define IP_OFFSET 5
+#define STATUS_OFFSET 9
+#define PAYLOAD_SIZE_OFFSET 11
+#define PAYLOAD_OFFSET 19
 
 void FindMagic(u8* StartBuffer, u8* EndBuffer);
 void FillData();
@@ -77,7 +78,8 @@ void FindMagic(u8* StartBuffer, u8* EndBuffer) {
 
 void FillData() {
 	for(int i = 0; i<PointerCounter; i++) {
-		u32 Magic; 
+		u32 Magic;
+		u8 IsHTTPS;
 		u32 ip;
 		u16 StatusCode;
 		u64 PayloadSize;
@@ -86,6 +88,7 @@ void FillData() {
 		u8* Magicptr = MagicPointers[i];
 
 		memcpy(&Magic,Magicptr+MAGIC_OFFSET,sizeof(u32));
+		memcpy(&IsHTTPS,Magicptr+HTTPS_OFFSET,sizeof(u8));
 		memcpy(&ip,Magicptr+IP_OFFSET,sizeof(u32));
 		memcpy(&StatusCode,Magicptr+STATUS_OFFSET,sizeof(u16));
 		memcpy(&PayloadSize,Magicptr+PAYLOAD_SIZE_OFFSET,sizeof(u64));
@@ -96,6 +99,7 @@ void FillData() {
 		// create and populate struct
 		struct SiteData Site;
 		Site.Magic = Magic;
+		Site.IsHTTPS = IsHTTPS;
 		Site.IP = ip;
 		Site.StatusCode = StatusCode;
 		Site.PayloadSize = PayloadSize;
@@ -117,13 +121,17 @@ void MakeJSON() {
 	for(int i = 0; i<PointerCounter; i++) {
 		struct SiteData Site = SiteDataArray[i];
 		u32 Magic = Site.Magic;
+		u8 IsHTTPS = Site.IsHTTPS;
 		u32 IP = Site.IP;
 		u16 StatusCode = Site.StatusCode;
 		u64 PayloadSize = Site.PayloadSize;
 		char* Payload = Site.Payload;
 		
 		// Convert everything to strings	
-		
+		char HTTPSStr[6] = "HTTP\0\0";
+		if(IsHTTPS) {
+			strncpy(HTTPSStr,"HTTPS",5);
+		} 
 		char IPStr[16];
 		memset(IPStr,0,16);
 		ResolveIP(IP,IPStr);	
@@ -142,16 +150,16 @@ void MakeJSON() {
 		sprintf(IStr,"%d",i);
 
 		json_object* JArray = json_object_new_array();
-		
+		json_object* JHTTPSStr = json_object_new_string(HTTPSStr);	
 		json_object *JIPStr = json_object_new_string(IPStr);
 		json_object *JStatusStr = json_object_new_string(StatusStr);
 		json_object *JPayload = json_object_new_string(Payload);
-		
+	
+		json_object_array_add(JArray,JHTTPSStr);
 		json_object_array_add(JArray, JIPStr);
 		json_object_array_add(JArray, JStatusStr);
 		json_object_array_add(JArray, JPayload);
 		json_object_object_add(JObj,IStr, JArray);
-
 	}
 }
 int main(int argc, char** argv) {

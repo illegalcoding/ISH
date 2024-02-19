@@ -43,5 +43,5 @@ struct SSLThreadBlock {
 };
 typedef struct ScanHTTPSData ScanHTTPSData;
 typedef struct SSLThreadBlock SSLThreadBlock;
-char* ScanHTTPS(char* URL, size_t URLSize);
+char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize);
 #endif

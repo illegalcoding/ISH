@@ -159,6 +159,7 @@ void ClearBlock(struct SiteDataBlock* Block) {
 /* Write SiteData to disk */
 void WriteData(struct SiteData* Data) {
 	fwrite(&(Data->Magic),sizeof(u32),1,FileOut);
+	fwrite(&(Data->IsHTTPS),sizeof(u8),1,FileOut);
 	fwrite(&(Data->IP), sizeof(u32), 1, FileOut);
 	fwrite(&(Data->StatusCode), sizeof(u16), 1, FileOut);  	
 	fwrite(&(Data->PayloadSize), sizeof(u64), 1, FileOut);  	
@@ -585,74 +586,36 @@ void* ScanRange(void* RangePtr) {
 		/* Parse response */
 
 		// Read status line out of FirstBuffer
-		int StatusLineEnd = -1;
-		int FailedToFindStatus = 0;
-		for(int i = 0; i<FirstBufferSize; i++) {
-			if(FirstBuffer[i] == '\r') {
-				if(i+1 <= FirstBufferSize) {
-					if(FirstBuffer[i+1] == '\n') {
-						StatusLineEnd = i;	
-						break;
-					} else {
-						TRACE_ERROR("CR without LF");
-						free(FirstBuffer);
-						FailedToFindStatus = 1;
-						break;
-					}
-				} else {
-					TRACE_ERROR("couldn't find status-line");
-					free(FirstBuffer);
-					FailedToFindStatus = 1;
-					break;
-				}
+		char HTTPText[5] = "HTTP\0";
+		char CmpHTTP[5];
+		CmpHTTP[4] = '\0';
+		strncpy(CmpHTTP,FirstBuffer,4);
+		int HTTPCmpRes = strcmp(CmpHTTP,HTTPText);
+		if(HTTPCmpRes != 0) {
+			fprintf(stderr,"Malformed response from %s\n",ResolvedIP);
+			if(ReadCount > 1) {
+				free(CombBack);
 			}
-		}
-
-		if(FailedToFindStatus) {
+		
+			free(CombFront);
 			Counter++;
 			continue;
-		}
-		
-		char StatusLine[StatusLineEnd+1];
-		memset(StatusLine,0,StatusLineEnd+1);
-		
-		if(FirstBufferSize>=StatusLineEnd) {
-			strncpy(StatusLine, FirstBuffer, StatusLineEnd);
-		}
-
+		}	
 		char StatusCode[4];
-		memset(StatusCode,0,4);
-		
-		if(strlen(StatusLine)>=13) {
-			strncpy(StatusCode,&StatusLine[9],3);
-		}
-
+		StatusCode[3] = '\0';
+		strncpy(StatusCode,&FirstBuffer[9],3);
 		free(FirstBuffer);
 		
-		char OkCode[] = "200";
-		char FoundCode[] = "302";
 		char RedirectCode[] = "301";
 
-		int OkResult = strcmp(StatusCode,OkCode);
-		int FoundResult = strcmp(StatusCode,FoundCode);
 		int RedirectResult = strcmp(StatusCode,RedirectCode);
 		int NumStatusCode = 0;
-		
-		if(OkResult == 0) {
-			char ResolvedOkIP[16];
-			memset(ResolvedOkIP,0,16);
-			ResolveIP(IP, ResolvedOkIP);
-
-			NumStatusCode = 200;
-			fprintf(stderr, "%s returned 200\n", ResolvedOkIP);
-		} else if(FoundResult == 0) {
-			char ResolvedFoundIP[16];
-			memset(ResolvedFoundIP,0,16);
-			ResolveIP(IP, ResolvedFoundIP);
-			
-			NumStatusCode = 302;
-			fprintf(stderr, "%s returned 302\n", ResolvedFoundIP);	
-		} else if(RedirectResult == 0) {
+		NumStatusCode = atoi(StatusCode);
+		if(NumStatusCode == 0  || NumStatusCode > 599) {
+			fprintf(stderr,"Malformed status code from %s\n",ResolvedIP);
+		}
+		int DoneHTTPS = 0;
+		if(RedirectResult == 0) {
 			char ResolvedRedirectIP[16];
 			memset(ResolvedRedirectIP,0,16);
 			ResolveIP(IP, ResolvedRedirectIP);
@@ -666,18 +629,70 @@ void* ScanRange(void* RangePtr) {
 			/* fprintf(stderr, "URL as hex: "); */
 			/* PrintHex(URL); */
 			/* fprintf(stderr,"URLSize: %lu\n",URLSize); */
+			size_t ResponseSize = 0;
 			if(URLSize > 0) {
 				/*
-				 * This is a hack; LocationParser seems to accidentally include a 0D at the end of the URL, 
-				 * but I made it copy 1 less byte to Output and didn't change the size, so we need to subtract 1.
+				 * This is a hack; LocationParser seems to accidentally include a 0D at the end of the URL.
+				 * I made it copy 1 less byte to Output to "fix" this, but I didn't change the size, so we need to subtract 1.
+				 *
 				 *
 				 */
-				Response = ScanHTTPS(URL, URLSize-1);
+				Response = ScanHTTPS(URL, URLSize-1, &ResponseSize);
 			}
-			if(Response != NULL) {
+			if(Response != NULL && ResponseSize != 0) {
 				/* Parse out SiteData attributes and write them */
-				/* fprintf(stderr,"ScanHTTPS returned buffer: %s\n",Response); */	
-				free(Response);
+				DoneHTTPS = 1;
+				free(CombFront);
+				char HTTPText[5] = "HTTP\0";
+				char CmpHTTP[5];
+				CmpHTTP[4] = '\0';
+				strncpy(CmpHTTP,Response,4);
+				int HTTPCmpRes = strcmp(CmpHTTP,HTTPText);
+				if(HTTPCmpRes != 0) {
+					DoneHTTPS = 0;
+					fprintf(stderr,"Malformed response from %s\n",ResolvedIP);
+					if(ReadCount > 1) {
+						free(CombBack);
+					}
+				
+					free(Response);
+					Counter++;
+					continue;
+				}	
+				char StatusCode[4];
+				StatusCode[3] = '\0';
+				strncpy(StatusCode,&Response[9],3);
+				int NumStatusCode = 0;
+				NumStatusCode = atoi(StatusCode);
+				if(NumStatusCode == 0  || NumStatusCode > 599) {
+					fprintf(stderr,"Malformed status code from %s\n",ResolvedIP);
+					DoneHTTPS = 0;
+					free(Response);
+					Counter++;
+					continue;
+				}
+
+				struct SiteData Site;
+				Site.IsHTTPS = 1;
+				Site.Magic = MAGIC;
+				Site.IP = IP;
+				Site.StatusCode = NumStatusCode;
+				Site.PayloadSize = ResponseSize;
+				Site.Payload = Response;
+				int BlockIndex = FindFreeBlockIndex();
+				while(BlockIndex == -1) {
+					BlockIndex = FindFreeBlockIndex();	
+					usleep(50000); // sleep for 50ms
+				}
+				pthread_mutex_lock(&Blocks[BlockIndex].Lock);
+				
+				Blocks[BlockIndex].Data = Site;
+				Blocks[BlockIndex].InUse = 1;
+				
+				pthread_mutex_unlock(&Blocks[BlockIndex].Lock);
+				
+				Counter++;
+				continue;
 			}
 		}
 		
@@ -685,18 +700,13 @@ void* ScanRange(void* RangePtr) {
 			free(CombBack);
 		}
 		
-		if(NumStatusCode == 0) {
-			/* Not 200||301||302, no need to save */
-			free(CombFront); // We can free this cause we don't need it anymore
-			Counter++;
-			continue;
-		}
 		/* Write response to block */
 
 		// Populate SiteData
 		struct SiteData Site;
 		
-		Site.Magic = 0x5173B10C;
+		Site.IsHTTPS = 0;
+		Site.Magic = MAGIC;
 		Site.IP = IP;
 		Site.StatusCode = NumStatusCode;
 		Site.PayloadSize = CombFrontSize;

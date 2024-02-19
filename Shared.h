@@ -52,11 +52,11 @@ typedef uint64_t u64;
 
 struct SiteData {
 	u32 Magic;
+	u8 IsHTTPS;
 	u32 IP;
 	u16 StatusCode;
 	u64 PayloadSize;
 	char* Payload;
-	u8 flags; /* 0x0 = HTTP, 0x1 = HTTPS */
 };
 
 struct SiteDataBlock {

@@ -12,10 +12,10 @@ Options:
 ## Using the parser
 ISH saves in a binary output format so a parser is needed to convert this to a common format other programs can understand. The format the parser uses for this is JSON.\
 ### The elements of the JSON array:
-- HTTP/HTTPS (Indicates whether this server is HTTP or HTTPS)
-- IP address
-- HTTP(S) response code
-- Response text
+- HTTP/HTTPS (Indicates whether the server is HTTP or HTTPS)
+- IP address (The IP address of the server)
+- HTTP(S) response code (The response code the server sent)
+- Response text (The full response text the server sent, including the headers)
 ## Dependencies
 - json-c
 - OpenSSL

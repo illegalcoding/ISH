@@ -48,7 +48,6 @@
 #include <sys/ioctl.h>
 
 static int DoExit = 0;
-extern int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead);
 #define PORT 443
 #define PORT_STR "443"
 

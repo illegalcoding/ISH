@@ -86,7 +86,6 @@ struct SiteDataBlock Blocks[NUM_BLOCKS]; // Create 100 Blocks
 void *ScanRange(void* RangePtr);
 int SplitRange(u32 StartIP, u32 EndIP);
 void InitBlocks();
-void InitSSLThreadBlocks();
 void* BlockWatchdog(void* ThreadData);
 void ClearBlock(struct SiteDataBlock* block);
 void WriteData(struct SiteData* data);

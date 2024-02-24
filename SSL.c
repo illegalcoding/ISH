@@ -54,14 +54,34 @@ static int DoExit = 0;
 char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	struct timespec TsStart;
 	clock_gettime(CLOCK_REALTIME,&TsStart);
-	/* fprintf(stderr,"ScanHTTPS called with URL: %s, URLSize: %lu\n",URL, URLSize); */
+	fprintf(stderr,"ScanHTTPS called with URL: %s, URLSize: %lu\n",URL, URLSize);
 	char* URLStripped = malloc(URLSize-8+1); /* URLSize-strlen("https://") */
 	memset(URLStripped,0,URLSize-8+1);
 	
-	strncpy(URLStripped,URL+8,URLSize-9);
-	/* memcpy(URLStripped,&URL+8,URLSize-8); */
+	size_t URLStrippedSize = URLSize-8;
+	strncpy(URLStripped,URL+8,URLStrippedSize);
+
 	free(URL);
-	
+
+	int FirstSlashIndex = -1;
+	for(int i = 0; i<URLStrippedSize; i++) {
+		if(URLStripped[i] == '/') {
+			FirstSlashIndex = i;
+			break;
+		}
+	}
+	/* fprintf(stderr,"FirstSlashIndex: %d\n",FirstSlashIndex); */
+	char* URLSwap;
+	if(FirstSlashIndex != -1) {
+		URLSwap = URLStripped;
+		URLStripped = NULL;
+		URLStrippedSize = FirstSlashIndex;
+		URLStripped = malloc(URLStrippedSize+1);
+		memset(URLStripped,0,URLStrippedSize+1);
+		strncpy(URLStripped,URLSwap,URLStrippedSize);
+		free(URLSwap);
+	}
+
 	/* fprintf(stderr,"URLStripped: %s\n",URLStripped); */
 
 	signal(SIGPIPE,SIG_IGN);

@@ -54,7 +54,7 @@ static int DoExit = 0;
 char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	struct timespec TsStart;
 	clock_gettime(CLOCK_REALTIME,&TsStart);
-	fprintf(stderr,"ScanHTTPS called with URL: %s, URLSize: %lu\n",URL, URLSize);
+	/* fprintf(stderr,"ScanHTTPS called with URL: %s, URLSize: %lu\n",URL, URLSize); */
 	char* URLStripped = malloc(URLSize-8+1); /* URLSize-strlen("https://") */
 	memset(URLStripped,0,URLSize-8+1);
 	

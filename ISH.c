@@ -636,7 +636,7 @@ void* ScanRange(void* RangePtr) {
 			usleep(50*1000);
 		}
 		
-		if(TimedOut) {
+		if(TimedOut && FullSize <= 0) {
 			close(Sockfd);
 			Counter++; // skip this ip
 			continue; // go to next one
@@ -649,7 +649,7 @@ void* ScanRange(void* RangePtr) {
 		char HTTPText[5] = "HTTP\0";
 		char CmpHTTP[5];
 		CmpHTTP[4] = '\0';
-		strncpy(CmpHTTP,FirstBuffer,4);
+		strncpy(CmpHTTP,CombFront,4);
 		int HTTPCmpRes = strcmp(CmpHTTP,HTTPText);
 		if(HTTPCmpRes != 0) {
 			fprintf(stderr,"Malformed response from %s\n",ResolvedIP);
@@ -663,7 +663,7 @@ void* ScanRange(void* RangePtr) {
 		}	
 		char StatusCode[4];
 		StatusCode[3] = '\0';
-		strncpy(StatusCode,&FirstBuffer[9],3);
+		strncpy(StatusCode,&CombFront[9],3);
 		free(FirstBuffer);
 		
 		char RedirectCode[] = "301";

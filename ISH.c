@@ -62,6 +62,8 @@ int ThreadsPossible;
 int ThreadsWanted;
 int ThreadsRunning = 0;
 
+int SkipLocalIPs = 0;
+
 FILE* FileOut;
 
 
@@ -94,6 +96,7 @@ int CheckContentLengthHeader(char* Header);
 int FindHeaderEndOffset(char* Payload, size_t PayloadSize);
 int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead);
 size_t LocationParser(char* Buffer, size_t BufferSize, char** Output);
+int CheckIfLocalIP(u32 IP);
 
 /* Initialize Blocks to not in use */
 void InitBlocks() {
@@ -356,6 +359,24 @@ size_t LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 	free(LocationHeader);
 	return URLSize;	
 }
+
+/* Check for RFC 1918 reserved IPs */
+int CheckIfLocalIP(u32 IP) {
+	/* Check for 10.0.0.0 - 10.255.255.255 */
+	if(IP >= 0x0A000000 && IP <= 0x0AFFFFFF) {
+		return 1; /* IP is reserved private */
+	}
+	/* Check for 172.16.0.0 - 172.31.255.255 */
+	if(IP >= 0xAC100000 && IP <= 0xAC1FFFFF) {
+		return 1;
+	}
+	/* Check for 192.168.0.0 - 192.168.255.255 */
+	if(IP >= 0xC0A80000 && IP <= 0xC0A8FFFF) {
+		return 1;	
+	}
+	return 0;
+}
+
 void* ScanRange(void* RangePtr) {
 	ThreadsRunning++;
 
@@ -386,6 +407,14 @@ void* ScanRange(void* RangePtr) {
 		int TimedOut = 0;
 		struct timespec TsStart;
 		clock_gettime(CLOCK_REALTIME, &TsStart);
+		
+		if(SkipLocalIPs == 1) {
+			int IsLocalIP = CheckIfLocalIP(IP);
+			if(IsLocalIP == 1) {
+				Counter++;
+				continue;
+			}
+		}
 
 		char ResolvedIP[16];
 		ResolveIP(IP,ResolvedIP);
@@ -792,8 +821,9 @@ int SplitRange(u32 StartIP, u32 EndIP) {
 
 void usage() {
 	fprintf(stderr,"Usage:\n");
-	fprintf(stderr,"\tish [-s Start IP] [-e End IP] [-t Thread count]\n");
+	fprintf(stderr,"\tish [-p] -s <Start IP> -e <End IP> -t <Thread count>\n");
 	fprintf(stderr,"Options:\n");
+	fprintf(stderr,"\t-p Skip private addresses.\n");
 	fprintf(stderr,"\t-s <ip> Set starting IP address.\n");
 	fprintf(stderr,"\t-e <ip> Set end IP address.\n");
 	fprintf(stderr,"\t-t <thread count> Set thread count.\n");
@@ -899,12 +929,16 @@ int main(int argc, char** argv) {
 	char* sValue = NULL;
 	char* eValue = NULL;
 	char* tValue = NULL;
-		
+	int pFlag = 0;
+
 	int c;
 	opterr = 0;
-	while((c = getopt(argc, argv, "s:e:t:")) != -1) {
+	while((c = getopt(argc, argv, "ps:e:t:")) != -1) {
 		switch(c)
 		{
+			case 'p':
+				pFlag = 1;
+				break;
 			case 's':
 				sValue = optarg;
 				break;
@@ -920,6 +954,10 @@ int main(int argc, char** argv) {
 	}
 	if(sValue == NULL || eValue == NULL || tValue == NULL) {
 		usage();
+	}
+
+	if(pFlag == 1) {
+		SkipLocalIPs = 1;
 	}
 
 	ThreadsWanted = atoi(tValue);

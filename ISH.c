@@ -360,19 +360,63 @@ size_t LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 	return URLSize;	
 }
 
-/* Check for RFC 1918 reserved IPs */
+/* Check for reserved IPs */
 int CheckIfLocalIP(u32 IP) {
+	/* Check for 0.0.0.0 - 0.255.255.255 */
+	if(IP >= 0x00000000 && IP <= 0x00FFFFFF) {
+		return 1;
+	}
 	/* Check for 10.0.0.0 - 10.255.255.255 */
 	if(IP >= 0x0A000000 && IP <= 0x0AFFFFFF) {
-		return 1; /* IP is reserved private */
+		return 1;
+	}
+	/* Check for 127.0.0.0 - 127.255.255.255 */
+	if(IP >= 0x7F000000 && IP <= 0x7FFFFFFF) {
+		return 1;
+	}
+	/* Check for 169.254.0.0 - 169.254.255.255 */
+	if(IP >= 0xA9FE0000 && IP <= 0xA9FEFFFF) {
+		return 1;
 	}
 	/* Check for 172.16.0.0 - 172.31.255.255 */
 	if(IP >= 0xAC100000 && IP <= 0xAC1FFFFF) {
 		return 1;
 	}
+	/* Check 192.0.0.0 - 192.0.0.255 */
+	if(IP >= 0xC0000000 && IP <= 0xC00000FF) {
+		return 1;
+	}
+	/* Check for 192.0.2.0 - 192.0.2.255 */
+	if(IP >= 0xC0000200 && IP <= 0xC00002FF) {
+		return 1;
+	}
+	/* Check for 192.88.99.0 - 192.88.99.255 */
+	if(IP >= 0xC0586300 && IP <= 0xC05863FF) {
+		return 1;
+	}
 	/* Check for 192.168.0.0 - 192.168.255.255 */
 	if(IP >= 0xC0A80000 && IP <= 0xC0A8FFFF) {
 		return 1;	
+	}
+	/* Check for 198.18.0.0 - 198.19.255.255 */
+	if(IP >= 0xC6120000 && IP <= 0xC613FFFF) {
+		return 1;
+	}
+	/* Check for 198.51.100.0 - 198.51.100.255 */
+	if(IP >= 0xC6336400 && IP <= 0xC63364FF) {
+		return 1;
+	}
+	/* Check for 203.0.113.0 - 203.0.113.255 */
+	if(IP >= 0xCB007100 && IP <= 0xCB0071FF) {
+		return 1;
+	}
+	/* Check for 233.252.0.0 - 233.252.0.255 */
+	if(IP >= 0xE9FC0000 && IP <= 0xE9FC00FF) {
+		return 1;
+	}
+	/* Check for 240.0.0.0 - 255.255.255.254 (also include 255.255.255.255 here) */
+	if(IP >= 0xF0000000 && IP <= 0xFFFFFFFF) {
+		return 1;
 	}
 	return 0;
 }

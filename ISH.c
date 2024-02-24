@@ -182,7 +182,6 @@ int FindHeaderEndOffset(char* Payload, size_t PayloadSize) {
 	while(DoIndex < PayloadSize) {
 		DoIndex = StartIndex+Counter;
 		if(DoIndex+3 >= PayloadSize) {
-			TRACE_ERROR("couldn't find end of headers");
 			break;
 		}
 		Counter++;
@@ -226,7 +225,6 @@ int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead) {
 	}
 
 	if(!Found) {
-		/* TRACE_WARNING("Couldn't find content-length"); */
 		free(ContentLengthHeader);
 		return -1;
 	}
@@ -238,7 +236,6 @@ int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead) {
 
 	while(c != '\r' && c != '\n') {
 		if(FoundOffset+Counter > PayloadSize-1) {
-			/* TRACE_WARNING("no newline after content-length") */
 			free(ContentLengthHeader);
 			return -1;
 		}
@@ -338,7 +335,6 @@ size_t LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 		CurrentChar++;
 	}
 	if(LocationHeaderEnd == 0) {
-		/* TRACE_WARNING("Couldn't find CRLF after Location header"); */
 		free(LocationHeader);
 		return -2;
 	}
@@ -614,8 +610,6 @@ void* ScanRange(void* RangePtr) {
 					int rv = ContentLengthParser(FirstBuffer, FirstBufferSize, FullSize);	
 					if(rv == 0) {
 						Done = 1;
-					} else if(rv == -1) {
-						break;
 					}
 				} else { /* ReadCount != 1 */
 					/* Copy CombFront and Buffer to CombBack, swap */
@@ -639,8 +633,6 @@ void* ScanRange(void* RangePtr) {
 					int rv = ContentLengthParser(CombFront, CombFrontSize, FullSize);	
 					if(rv == 0) {
 						Done = 1;
-					} else if(rv == -1) {
-						break;
 					}
 				}
 			}

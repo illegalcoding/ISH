@@ -54,7 +54,6 @@ static int DoExit = 0;
 char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	struct timespec TsStart;
 	clock_gettime(CLOCK_REALTIME,&TsStart);
-	/* fprintf(stderr,"ScanHTTPS called with URL: %s, URLSize: %lu\n",URL, URLSize); */
 	char* URLStripped = malloc(URLSize-8+1); /* URLSize-strlen("https://") */
 	memset(URLStripped,0,URLSize-8+1);
 	
@@ -70,7 +69,6 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 			break;
 		}
 	}
-	/* fprintf(stderr,"FirstSlashIndex: %d\n",FirstSlashIndex); */
 	char* URLSwap;
 	if(FirstSlashIndex != -1) {
 		URLSwap = URLStripped;
@@ -82,7 +80,6 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 		free(URLSwap);
 	}
 
-	/* fprintf(stderr,"URLStripped: %s\n",URLStripped); */
 
 	signal(SIGPIPE,SIG_IGN);
 
@@ -177,14 +174,11 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	free(HostHeader);
 	free(Headers);
 
-	/* fprintf(stderr,"Writing %s\n",RequestBuffer); */
 	Status = SSL_write(SSL,RequestBuffer,RequestLength);
 	
 	if(Status <= 0) {
 		int err = SSL_get_error(SSL,Status);
-		/* fprintf(stderr,"SSL_write failed with err %d\n", err); */
 		if(err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ) {
-			/* fprintf(stderr,"Errno: %d: %s\nEAGAIN: %d",errno,strerror(errno),EAGAIN); */
 			while(errno == EAGAIN && !TimedOut) {
 				struct timespec Current;
 				clock_gettime(CLOCK_REALTIME, &Current);
@@ -242,7 +236,6 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 		if(DataRead > 0) {
 			ReadCounter++;
 			AllRead += DataRead;
-			/* fprintf(stderr, "DataRead: %lu\n",DataRead); */
 			if(ReadCounter == 1) {
 				CombFront = malloc(DataRead+1);
 				CombFrontSize = DataRead;
@@ -251,8 +244,6 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 				int rv = ContentLengthParser(CombFront, CombFrontSize, AllRead);	
 				if(rv == 0) {
 					Done = 1;
-				} else if(rv == -1) {
-					continue;
 				}
 			} else {
 				if(ReadCounter > 2) {
@@ -271,10 +262,7 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 				int rv = ContentLengthParser(CombFront, CombFrontSize, AllRead);	
 				if(rv == 0) {
 					Done = 1;
-				} else if(rv == -1) {
-					continue;
 				}
-				
 			}
 		}
 		memset(Buffer,0,4096+1);
@@ -283,10 +271,6 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	free(Buffer);
 	if(ReadCounter > 1) {
 		free(CombBack);
-	}
-	/* fprintf(stderr,"CombFront: %s\n",CombFront); */
-	if(TimedOut) {
-		TRACE_DEBUG("SSL_read timed out");	
 	}
 	if(AllRead == 0) {
 		SSL_free(SSL);

@@ -695,8 +695,6 @@ void* ScanRange(void* RangePtr) {
 				/*
 				 * This is a hack; LocationParser seems to accidentally include a 0D at the end of the URL.
 				 * I made it copy 1 less byte to Output to "fix" this, but I didn't change the size, so we need to subtract 1.
-				 *
-				 *
 				 */
 				Response = ScanHTTPS(URL, URLSize-1, &ResponseSize);
 			}

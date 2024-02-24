@@ -78,9 +78,6 @@ struct IPRange {
 	int Tid;
 };
 
-#define NUM_SSL_THREADS 10
-SSLThreadBlock SSLThreadBlocks[NUM_SSL_THREADS];
-
 #define NUM_BLOCKS 100
 struct SiteDataBlock Blocks[NUM_BLOCKS]; // Create 100 Blocks
 

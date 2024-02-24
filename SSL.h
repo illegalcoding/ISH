@@ -37,12 +37,7 @@
 struct ScanHTTPSData {
 	uint32_t IP;
 };
-struct SSLThreadBlock {
-	pthread_t** Thread;
-	int InUse;
-};
 typedef struct ScanHTTPSData ScanHTTPSData;
-typedef struct SSLThreadBlock SSLThreadBlock;
 char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize);
 extern int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead);
 #endif

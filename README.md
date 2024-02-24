@@ -4,9 +4,9 @@ ISH (or Internet Scanner for HTTP) scans an assigned IP range for HTTP/HTTPS web
 ## Usage:
 ```
 Usage:
-    ish [-p] -s <Start IP> -e <End IP> -t <Thread count>
+    ish [-r] -s <Start IP> -e <End IP> -t <Thread count>
 Options:
-    -p Skip private addresses
+    -r Skip reserved addresses
     -s <ip> Set starting IP address.
     -e <ip> Set end IP address.
     -t <thread count> Set thread count.

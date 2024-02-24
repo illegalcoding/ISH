@@ -210,5 +210,6 @@ int main(int argc, char** argv) {
 	free(FullBuffer);
 	FreePayloads();
 	free(SiteDataArray);
+	printf("Parsed %d blocks\n", PointerCounter);
 	return 0;
 }

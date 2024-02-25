@@ -43,7 +43,7 @@
 #define TRACE_DEBUG(STR) fprintf(stderr,"Debug: %s\n",STR);
 #define TRACE_MESSAGE(STR) fprintf(stdout,"%s\n",STR);
 
-#define TIMEOUT_TIME 3
+#define DEFAULT_TIMEOUT 3
 
 typedef uint8_t u8;
 typedef uint16_t u16;

@@ -63,6 +63,8 @@ int ThreadsWanted;
 int ThreadsRunning = 0;
 
 int SkipReservedIPs = 0;
+int QuietMode = 0;
+double TimeOutTime = DEFAULT_TIMEOUT;
 
 FILE* FileOut;
 
@@ -463,8 +465,8 @@ void* ScanRange(void* RangePtr) {
 
 		char ResolvedIP[16];
 		ResolveIP(IP,ResolvedIP);
-
-		printf("Thread %d scanning ip: %s\n", Tid, ResolvedIP);
+		if(!QuietMode)
+			printf("Thread %d scanning ip: %s\n", Tid, ResolvedIP);
 		/* Make request */
 		size_t NumHeaders = 1;
 		char* RequestBuffer;
@@ -516,7 +518,7 @@ void* ScanRange(void* RangePtr) {
 			clock_gettime(CLOCK_REALTIME, &Current);
 			double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
 
-			if(Seconds > TIMEOUT_TIME || DoExit == 1) {
+			if(Seconds > TimeOutTime || DoExit == 1) {
 				TimedOut = 1;
 			} 
 			usleep(1000*100);
@@ -535,7 +537,7 @@ void* ScanRange(void* RangePtr) {
 			struct timespec SendCurrent;
 			double SecondsSpent = (SendCurrent.tv_sec - TsStart.tv_sec) + (SendCurrent.tv_nsec - TsStart.tv_nsec) / (double) 1e9;
 
-			if(SecondsSpent > TIMEOUT_TIME || DoExit == 1) {
+			if(SecondsSpent > TimeOutTime || DoExit == 1) {
 				TimedOut = 1;
 				break;
 			}
@@ -573,7 +575,7 @@ void* ScanRange(void* RangePtr) {
 			clock_gettime(CLOCK_REALTIME, &ReadCurrent);
 			double Seconds = (ReadCurrent.tv_sec - TsStart.tv_sec) + (ReadCurrent.tv_nsec - TsStart.tv_nsec) / 1e9;
 
-			if(Seconds > TIMEOUT_TIME || DoExit == 1) {
+			if(Seconds > TimeOutTime || DoExit == 1) {
 				TimedOut = 1;
 				break;
 			}
@@ -675,6 +677,9 @@ void* ScanRange(void* RangePtr) {
 			fprintf(stderr,"Malformed status code from %s\n",ResolvedIP);
 		}
 		printf("%s returned %d\n",ResolvedIP,NumStatusCode);
+		struct timespec ResponseTime;
+		clock_gettime(CLOCK_REALTIME, &ResponseTime);
+		double ResponseSeconds = (ResponseTime.tv_sec - TsStart.tv_sec) + (ResponseTime.tv_nsec - TsStart.tv_nsec) / 1e9;
 		int DoneHTTPS = 0;
 		if(RedirectResult == 0) {
 			char ResolvedRedirectIP[16];
@@ -860,16 +865,18 @@ int SplitRange(u32 StartIP, u32 EndIP) {
 
 void usage() {
 	fprintf(stderr,"Usage:\n");
-	fprintf(stderr,"\tish [-r] -s <Start IP> -e <End IP> -t <Thread count>\n");
+	fprintf(stderr,"\tish [-r] [-q] [-T <Timeout time>] -s <Start IP> -e <End IP> -t <Thread count>\n");
 	fprintf(stderr,"Options:\n");
-	fprintf(stderr,"\t-r Skip reserved addresses.\n");
-	fprintf(stderr,"\t-s <ip> Set starting IP address.\n");
-	fprintf(stderr,"\t-e <ip> Set end IP address.\n");
-	fprintf(stderr,"\t-t <thread count> Set thread count.\n");
+	fprintf(stderr,"\t-r Skip reserved addresses\n");
+	fprintf(stderr,"\t-q Quiet mode: only print IP addresses that responded\n");
+	fprintf(stderr,"\t-T <time> Timeout time. (can be floating-point)\n");
+	fprintf(stderr,"\t-s <ip> Set starting IP address\n");
+	fprintf(stderr,"\t-e <ip> Set end IP address\n");
+	fprintf(stderr,"\t-t <thread count> Set thread count\n");
 	exit(1);
 }
 
-u32 ip_str_to_ip_u32(char* Input, int* Error) {
+u32 IPStrToNum(char* Input, int* Error) {
 	u32 IP = 0x00000000;
 
 	u8 NumBytes[4];
@@ -965,18 +972,23 @@ int main(int argc, char** argv) {
 		usage();
 	}
 
-	char* sValue = NULL;
-	char* eValue = NULL;
-	char* tValue = NULL;
-	int rFlag = 0;
+	char* sValue = NULL; /* (s)tart IP */
+	char* eValue = NULL; /* (e)nd IP */
+	char* tValue = NULL; /* (t)hread count */
+	char* TValue = NULL; /* (T)imeout */
+	int rFlag = 0; /* Skip (r)eserved IPs flag */
+	int qFlag = 0; /* (q)uiet mode (don't print every IP we're scanning) */
 
 	int c;
 	opterr = 0;
-	while((c = getopt(argc, argv, "rs:e:t:")) != -1) {
+	while((c = getopt(argc, argv, "rqs:e:t:T:")) != -1) {
 		switch(c)
 		{
 			case 'r':
 				rFlag = 1;
+				break;
+			case 'q':
+				qFlag = 1;
 				break;
 			case 's':
 				sValue = optarg;
@@ -986,6 +998,9 @@ int main(int argc, char** argv) {
 				break;
 			case 't':
 				tValue = optarg;
+				break;
+			case 'T':
+				TValue = optarg;
 				break;
 			default:
 				usage();
@@ -998,6 +1013,14 @@ int main(int argc, char** argv) {
 	if(rFlag == 1) {
 		SkipReservedIPs = 1;
 	}
+	if(qFlag == 1) {
+		QuietMode = 1;
+	}
+	if(TValue == NULL) {
+		TRACE_WARNING("No timeout specified, using default of 3 seconds.");
+	} else {
+		TimeOutTime = atof(TValue);	
+	}
 
 	ThreadsWanted = atoi(tValue);
 	ThreadsPossible = ThreadsWanted;
@@ -1006,12 +1029,12 @@ int main(int argc, char** argv) {
 	u32 StartIP = 0;
 	u32 EndIP = 0;
 
-	StartIP = ip_str_to_ip_u32(sValue, &error);
+	StartIP = IPStrToNum(sValue, &error);
 	if(error != 1) {
-		EndIP = ip_str_to_ip_u32(eValue, &error);
+		EndIP = IPStrToNum(eValue, &error);
 	}
 	if(error == 1) {
-		TRACE_ERROR("ip_str_to_ip_u32() failed");
+		TRACE_ERROR("IPStrToNum() failed");
 		return -1;
 	}
 

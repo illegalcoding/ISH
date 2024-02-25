@@ -48,6 +48,7 @@
 #include <sys/ioctl.h>
 
 static int DoExit = 0;
+extern double TimeOutTime;
 #define PORT 443
 #define PORT_STR "443"
 
@@ -108,8 +109,8 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	Hints.ai_socktype = SOCK_STREAM;
 	Status = getaddrinfo(URLStripped,PORT_STR,&Hints,&Res);
 	if(Status != 0) {
-		fprintf(stderr, "getaddrinfo returned %d\n",Status);
-		fprintf(stderr,"gai_strerror: %s\n",gai_strerror(Status));
+		/* fprintf(stderr, "getaddrinfo returned %d\n",Status); */
+		/* fprintf(stderr,"gai_strerror: %s\n",gai_strerror(Status)); */
 		SSL_free(SSL);
 		SSL_CTX_free(Ctx);
 		close(Socket);
@@ -132,7 +133,7 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 			clock_gettime(CLOCK_REALTIME, &Current);
 			double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
 
-			if(Seconds > TIMEOUT_TIME || DoExit == 1) {
+			if(Seconds > TimeOutTime || DoExit == 1) {
 				TimedOut = 1;
 			} 
 			Status = SSL_connect(SSL);
@@ -141,7 +142,6 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 		}
 	}
 	if(TimedOut) {
-		TRACE_DEBUG("SSL_connect timed out");
 		SSL_free(SSL);
 		SSL_CTX_free(Ctx);
 		close(Socket);
@@ -184,7 +184,7 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 				clock_gettime(CLOCK_REALTIME, &Current);
 				double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
 
-				if(Seconds > TIMEOUT_TIME || DoExit == 1) {
+				if(Seconds > TimeOutTime || DoExit == 1) {
 					TimedOut = 1;
 				} 
 				Status = SSL_write(SSL,RequestBuffer,RequestLength);
@@ -194,7 +194,6 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	}
 	free(RequestBuffer);
 	if(TimedOut) {
-		TRACE_DEBUG("SSL_write timed out");
 		SSL_free(SSL);
 		SSL_CTX_free(Ctx);
 		close(Socket);
@@ -218,7 +217,7 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 		clock_gettime(CLOCK_REALTIME, &Current);
 		double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
 
-		if(Seconds > TIMEOUT_TIME || DoExit == 1) {
+		if(Seconds > TimeOutTime || DoExit == 1) {
 			TimedOut = 1;
 		}
 		Status = SSL_read_ex(SSL,Buffer,4096,&DataRead);
@@ -227,7 +226,7 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 			clock_gettime(CLOCK_REALTIME, &Current);
 			double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
 
-			if(Seconds > TIMEOUT_TIME || DoExit == 1) {
+			if(Seconds > TimeOutTime || DoExit == 1) {
 				TimedOut = 1;
 			}
 			Status = SSL_read_ex(SSL,Buffer,4096,&DataRead);

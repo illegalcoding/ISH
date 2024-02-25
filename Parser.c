@@ -38,6 +38,7 @@
 #include <sys/stat.h>
 #include <json-c/json.h>
 #include "Shared.h"
+#include "json_object.h"
 
 #define FILENAME "output.sitedata"
 
@@ -55,7 +56,7 @@ void MakeJSON();
 
 u8** MagicPointers;
 int PointerCounter = 0;
-json_object* JObj;	
+json_object* JArray;	
 
 struct SiteData* SiteDataArray;
 
@@ -149,17 +150,22 @@ void MakeJSON() {
 		char IStr[ILength];
 		sprintf(IStr,"%d",i);
 
-		json_object* JArray = json_object_new_array();
+		json_object* JObj = json_object_new_object();
 		json_object* JHTTPSStr = json_object_new_string(HTTPSStr);	
-		json_object *JIPStr = json_object_new_string(IPStr);
-		json_object *JStatusStr = json_object_new_string(StatusStr);
-		json_object *JPayload = json_object_new_string(Payload);
+		json_object* JIPStr = json_object_new_string(IPStr);
+		json_object* JStatusStr = json_object_new_string(StatusStr);
+		json_object* JPayload = json_object_new_string(Payload);
 	
-		json_object_array_add(JArray,JHTTPSStr);
-		json_object_array_add(JArray, JIPStr);
-		json_object_array_add(JArray, JStatusStr);
-		json_object_array_add(JArray, JPayload);
-		json_object_object_add(JObj,IStr, JArray);
+		/* json_object_array_add(JArray,JHTTPSStr); */
+		/* json_object_array_add(JArray, JIPStr); */
+		/* json_object_array_add(JArray, JStatusStr); */
+		/* json_object_array_add(JArray, JPayload); */
+		json_object_object_add(JObj,"Protocol", JHTTPSStr);
+		json_object_object_add(JObj,"IP", JIPStr);
+		json_object_object_add(JObj,"StatusCode", JStatusStr);
+		json_object_object_add(JObj,"Payload", JPayload);
+		json_object_array_add(JArray, JObj);
+
 	}
 }
 int main(int argc, char** argv) {
@@ -198,9 +204,9 @@ int main(int argc, char** argv) {
 
 	FillData();
 
-	JObj = json_object_new_object();
+	JArray = json_object_new_array();
 	MakeJSON();
-	const char* JSONStr = json_object_to_json_string(JObj);
+	const char* JSONStr = json_object_to_json_string(JArray);
 	
 	FILE* OutFile = fopen("output.json", "w");
 	fwrite(JSONStr,strlen(JSONStr),1,OutFile);

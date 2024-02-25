@@ -38,7 +38,6 @@
 #include <sys/stat.h>
 #include <json-c/json.h>
 #include "Shared.h"
-#include "json_object.h"
 
 #define FILENAME "output.sitedata"
 

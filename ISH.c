@@ -67,6 +67,8 @@ int SkipReservedIPs = 0;
 int QuietMode = 0;
 double TimeOutTime = DEFAULT_TIMEOUT;
 
+#define DEFAULT_FILENAME "output.sitedata"
+char* FileName = NULL;
 FILE* FileOut;
 
 
@@ -151,7 +153,7 @@ void ClearBlock(struct SiteDataBlock* Block) {
 
 /* Write SiteData to disk */
 void WriteData(struct SiteData* Data) {
-	FileOut = fopen("output.sitedata", "ab");
+	FileOut = fopen(FileName, "ab");
 	fwrite(&(Data->Magic),sizeof(u32),1,FileOut);
 	fwrite(&(Data->IsHTTPS),sizeof(u8),1,FileOut);
 	fwrite(&(Data->IP), sizeof(u32), 1, FileOut);
@@ -860,14 +862,15 @@ int SplitRange(u32 StartIP, u32 EndIP) {
 
 void usage() {
 	fprintf(stderr,"Usage:\n");
-	fprintf(stderr,"\tish [-r] [-q] [-T <Timeout time>] -s <Start IP> -e <End IP> -t <Thread count>\n");
+	fprintf(stderr,"\tish [-r] [-q] [-T <timeout time>] -s <start IP> -e <end IP> -t <thread count> [-o <output file>]\n");
 	fprintf(stderr,"Options:\n");
 	fprintf(stderr,"\t-r Skip reserved addresses\n");
 	fprintf(stderr,"\t-q Quiet mode: only print IP addresses that responded\n");
 	fprintf(stderr,"\t-T <time> Timeout time. (can be floating-point)\n");
-	fprintf(stderr,"\t-s <ip> Set starting IP address\n");
-	fprintf(stderr,"\t-e <ip> Set end IP address\n");
-	fprintf(stderr,"\t-t <thread count> Set thread count\n");
+	fprintf(stderr,"\t-s <ip> Starting IP address\n");
+	fprintf(stderr,"\t-e <ip> End IP address\n");
+	fprintf(stderr,"\t-t <thread count> Thread count\n");
+	fprintf(stderr,"\t-o <output file> Output file (defaults to output.sitedata if not specified)\n");
 	exit(1);
 }
 
@@ -963,24 +966,21 @@ u32 IPStrToNum(char* Input, int* Error) {
 	return IP;
 }
 int main(int argc, char** argv) {
-	if(argc < 2) {
+	if(argc < 6) {
 		usage();
-	}
-	struct stat OutputFileStat;
-	if(stat("output.sitedata",&OutputFileStat) == 0) {
-		unlink("output.sitedata");
 	}
 
 	char* sValue = NULL; /* (s)tart IP */
 	char* eValue = NULL; /* (e)nd IP */
 	char* tValue = NULL; /* (t)hread count */
 	char* TValue = NULL; /* (T)imeout */
+	char* oValue = NULL; /* (o)utput file */
 	int rFlag = 0; /* Skip (r)eserved IPs flag */
 	int qFlag = 0; /* (q)uiet mode (don't print every IP we're scanning) */
 
 	int c;
 	opterr = 0;
-	while((c = getopt(argc, argv, "rqs:e:t:T:")) != -1) {
+	while((c = getopt(argc, argv, "rqs:e:t:T:o:")) != -1) {
 		switch(c)
 		{
 			case 'r':
@@ -1001,6 +1001,9 @@ int main(int argc, char** argv) {
 			case 'T':
 				TValue = optarg;
 				break;
+			case 'o':
+				oValue = optarg;
+				break;
 			default:
 				usage();
 		}
@@ -1019,6 +1022,27 @@ int main(int argc, char** argv) {
 		TRACE_WARNING("No timeout specified, using default of 3 seconds.");
 	} else {
 		TimeOutTime = atof(TValue);	
+	}
+	if(oValue == NULL) {
+		FileName = malloc(strlen(DEFAULT_FILENAME)+1);
+		memset(FileName,0,strlen(DEFAULT_FILENAME)+1);
+		strncpy(FileName, DEFAULT_FILENAME, strlen(DEFAULT_FILENAME));
+	} else {
+		char* c = oValue;
+		while(*c != '\0') {
+			if(*c == '/') {
+				TRACE_ERROR("Disallowed character in output filename: \'/\'");
+				return -1;
+			}
+			c++;
+		}
+		FileName = malloc(strlen(oValue)+1);
+		memset(FileName,0,strlen(oValue)+1);
+		strncpy(FileName,oValue,strlen(oValue));
+	}
+	struct stat OutputFileStat;
+	if(stat(FileName,&OutputFileStat) == 0) {
+		unlink(FileName);
 	}
 
 	ThreadsWanted = atoi(tValue);
@@ -1126,6 +1150,7 @@ int main(int argc, char** argv) {
 
 	DoExit = 1;
 	pthread_join(WatchdogThread, NULL);
+	free(FileName);
 	
 	return 0;
 }

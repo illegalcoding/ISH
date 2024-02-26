@@ -39,8 +39,6 @@
 #include <json-c/json.h>
 #include "Shared.h"
 
-#define FILENAME "output.sitedata"
-
 #define MAGIC_OFFSET 0
 #define HTTPS_OFFSET 4
 #define IP_OFFSET 5
@@ -58,6 +56,15 @@ int PointerCounter = 0;
 json_object* JArray;	
 
 struct SiteData* SiteDataArray;
+
+void usage() {
+	fprintf(stderr,"Usage:\n");
+	fprintf(stderr,"\tparser -f <input file> -o <output file>\n");
+	fprintf(stderr,"Options:\n");
+	fprintf(stderr,"\t-f <input file> Input file\n");
+	fprintf(stderr,"\t-o <output file> Output file\n");
+	exit(1);
+}
 
 void FindMagic(u8* StartBuffer, u8* EndBuffer) {
 	u32 Holding;
@@ -168,13 +175,64 @@ void MakeJSON() {
 	}
 }
 int main(int argc, char** argv) {
+	if(argc < 4) {
+		usage();
+	}
+	char* fValue = NULL;
+	char* oValue = NULL;
+
+	int c;
+	opterr = 0;
+	while((c = getopt(argc, argv, "f:o:")) != -1) {
+		switch(c)
+		{
+			case 'f':
+				fValue = optarg;
+				break;
+			case 'o':
+				oValue = optarg;
+				break;
+			default:
+				usage();
+		}
+	}
+	if(fValue == NULL || oValue == NULL) {
+		usage();
+	}
+
+	char* InputFileName;
+	char* OutputFileName;
+	char* fc = fValue;
+	char* oc = oValue;
+	while(*fc != '\0') {
+		if(*fc == '/') {
+			TRACE_ERROR("Disallowed character in input filename: \'/\'");
+			return -1;
+		}
+		fc++;
+	}
+	while(*oc != '\0') {
+		if(*oc == '/') {
+			TRACE_ERROR("Disallowed character in output filename: \'/\'");
+			return -1;
+		}
+		oc++;
+	}
+	InputFileName = malloc(strlen(fValue)+1);
+	memset(InputFileName,0,strlen(fValue)+1);
+	strncpy(InputFileName,fValue,strlen(fValue));
+
+	OutputFileName = malloc(strlen(oValue)+1);
+	memset(OutputFileName,0,strlen(oValue)+1);
+	strncpy(OutputFileName,oValue,strlen(oValue));
+	
 	struct stat st;
-	if(stat(FILENAME, &st) != 0) {
-		TRACE_MESSAGE("No output.sitedata file, run ISH first");
+	if(stat(InputFileName, &st) != 0) {
+		TRACE_ERROR("Input file does not exist");
 		return 1;
 	}
 	
-	FILE* File = fopen(FILENAME, "rb");	
+	FILE* File = fopen(InputFileName, "rb");	
 	
 	size_t Fsz;
 	fseek(File, 0, SEEK_END);
@@ -182,7 +240,7 @@ int main(int argc, char** argv) {
 	rewind(File);
 	
 	if(Fsz == 0) {
-		TRACE_MESSAGE("No data in output.sitedata");
+		TRACE_ERROR("No data in input file");
 		return 0;
 	}
 
@@ -207,7 +265,7 @@ int main(int argc, char** argv) {
 	MakeJSON();
 	const char* JSONStr = json_object_to_json_string(JArray);
 	
-	FILE* OutFile = fopen("output.json", "w");
+	FILE* OutFile = fopen(OutputFileName, "w");
 	fwrite(JSONStr,strlen(JSONStr),1,OutFile);
 	fclose(OutFile);
 
@@ -216,5 +274,7 @@ int main(int argc, char** argv) {
 	FreePayloads();
 	free(SiteDataArray);
 	printf("Parsed %d blocks\n", PointerCounter);
+	free(InputFileName);
+	free(OutputFileName);
 	return 0;
 }

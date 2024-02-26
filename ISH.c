@@ -43,6 +43,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <ctype.h>
+#include <sys/stat.h>
 #include "SSL.h"
 #include "Shared.h"
 #include "Request.h"
@@ -150,12 +151,14 @@ void ClearBlock(struct SiteDataBlock* Block) {
 
 /* Write SiteData to disk */
 void WriteData(struct SiteData* Data) {
+	FileOut = fopen("output.sitedata", "ab");
 	fwrite(&(Data->Magic),sizeof(u32),1,FileOut);
 	fwrite(&(Data->IsHTTPS),sizeof(u8),1,FileOut);
 	fwrite(&(Data->IP), sizeof(u32), 1, FileOut);
 	fwrite(&(Data->StatusCode), sizeof(u16), 1, FileOut);  	
 	fwrite(&(Data->PayloadSize), sizeof(u64), 1, FileOut);  	
 	fwrite(Data->Payload, Data->PayloadSize, 1, FileOut);
+	fclose(FileOut);
 }
 
 int CheckContentLengthHeader(char* Header) {
@@ -963,6 +966,10 @@ int main(int argc, char** argv) {
 	if(argc < 2) {
 		usage();
 	}
+	struct stat OutputFileStat;
+	if(stat("output.sitedata",&OutputFileStat) == 0) {
+		unlink("output.sitedata");
+	}
 
 	char* sValue = NULL; /* (s)tart IP */
 	char* eValue = NULL; /* (e)nd IP */
@@ -1049,8 +1056,6 @@ int main(int argc, char** argv) {
 	pthread_t Threads[ThreadsPossible];
 	
 	InitBlocks();
-
-	FileOut = fopen("output.sitedata", "wb");
 	
 	struct sigaction NewAction, OldAction, IgnoreAction;
 	NewAction.sa_handler = SignalHandler;
@@ -1111,7 +1116,7 @@ int main(int argc, char** argv) {
 	free(Ends);
 	
 	while(((ThreadsDone < ThreadsPossible)) && ThreadsRunning != 0 && (DoExit != 1)) {
-		fprintf(stderr, "ThreadsDone: %d, ThreadsRunning: %d\n", ThreadsDone, ThreadsRunning);
+		fprintf(stderr, "Threads done: %d, Threads running: %d\n", ThreadsDone, ThreadsRunning);
 		sleep(1); // sleep 1s
 	}
 

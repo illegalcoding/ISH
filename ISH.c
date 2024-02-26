@@ -140,11 +140,11 @@ void* BlockWatchdog(void* ThreadData) {
 
 void ClearBlock(struct SiteDataBlock* Block) {
 	pthread_mutex_lock(&(Block->Lock));
-	
+
 	WriteData(&(Block->Data));		
 	free(Block->Data.Payload);
 	Block->InUse = 0;
-	
+
 	pthread_mutex_unlock(&(Block->Lock));
 }
 
@@ -162,13 +162,13 @@ int CheckContentLengthHeader(char* Header) {
 	char GoodHeader[] = "content-length:";
 	char* CompHdr = malloc(15+1);
 	memset(CompHdr,0,15+1);
-	
+
 	for(int i = 0; i<15+1;i++) {
 		CompHdr[i] = tolower(Header[i]);
 	}
-	
+
 	int rv = strcmp(GoodHeader,CompHdr);
-	
+
 	free(CompHdr);
 	return rv;
 }
@@ -207,7 +207,7 @@ int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead) {
 	char* ContentLengthHeader;
 	ContentLengthHeader = malloc(15+1);
 	memset(ContentLengthHeader,0,15+1);
-	
+
 	int Found = 0;
 	int FoundOffset = -1;
 
@@ -256,18 +256,18 @@ int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead) {
 	strncpy(StrNumBytes,&FullHeader[NumOffset],NumLength);
 	int NumBytes = atoi(StrNumBytes);
 	/* Calculate if this is the last packet */
-	
+
 	/* Find where the headers end */
-	
+
 	int HeaderEndOffset = FindHeaderEndOffset(Payload, PayloadSize);
-	
+
 	if(HeaderEndOffset == -1) {
 		free(StrNumBytes);
 		free(ContentLengthHeader);
 		free(FullHeader);
 		return -1;
 	}
-	
+
 	size_t AllHeadersSize = HeaderEndOffset;
 	size_t DataSize = AllRead-AllHeadersSize;
 	if(NumBytes != DataSize-1) { /* No clue why we need the -1 */
@@ -339,13 +339,13 @@ size_t LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 	}
 	size_t LocationHeaderSize = LocationHeaderEnd-LocationHeaderBegin;
 	size_t URLSize = LocationHeaderSize-strlen("Location: ");
-	
+
 	char* URL = malloc(URLSize+1);
 	memset(URL,0,URLSize+1);
-	
+
 	char* URLBegin = LocationHeaderBegin+strlen("Location: ");
 	memcpy(URL,URLBegin,URLSize);
-	
+
 	*Output = malloc(URLSize+1);
 	memset(*Output,0,URLSize+1);
 	memcpy(*Output,URL,URLSize-1);
@@ -454,7 +454,7 @@ void* ScanRange(void* RangePtr) {
 		int TimedOut = 0;
 		struct timespec TsStart;
 		clock_gettime(CLOCK_REALTIME, &TsStart);
-		
+
 		if(SkipReservedIPs == 1) {
 			int IsReservedIP = CheckIfReservedIP(IP);
 			if(IsReservedIP == 1) {
@@ -473,7 +473,7 @@ void* ScanRange(void* RangePtr) {
 		HTRequest* Request = malloc(sizeof(HTRequest));
 		HTRequestHeader* Headers = malloc(sizeof(HTRequestHeader)*NumHeaders);
 		HTRequestHeader* HostHeader = malloc(sizeof(HTRequestHeader));
-		
+
 		Request->RequestLine.Method = "GET";
 		Request->RequestLine.URI = "/";
 		Request->RequestLine.Version = "HTTP/1.1";
@@ -487,7 +487,7 @@ void* ScanRange(void* RangePtr) {
 		Request->Headers[0] = *HostHeader;
 
 		size_t RequestLength = SerializeRequest(&RequestBuffer, Request);
-		
+
 		free(Request);
 		free(Headers);
 		free(HostHeader);
@@ -495,7 +495,7 @@ void* ScanRange(void* RangePtr) {
 		/* Set up socket */
 		int Status, ValRead, Sockfd;
 		struct sockaddr_in ServAddr;
-		
+
 		Sockfd = socket(AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0);
 		if(Sockfd < 0) {
 			fprintf(stderr,"Sockfd: %d\n", Sockfd);
@@ -505,7 +505,7 @@ void* ScanRange(void* RangePtr) {
 		}
 		struct in_addr Address;
 		Address.s_addr = htonl(IP);
-		
+
 		ServAddr.sin_family = AF_INET;
 		ServAddr.sin_port = htons(80);
 		ServAddr.sin_addr = Address;
@@ -551,7 +551,7 @@ void* ScanRange(void* RangePtr) {
 			continue; // go to next ip
 		}
 		free(RequestBuffer);
-		
+
 		int Count;
 		int Done = 0;
 		int HaveRead = 0;
@@ -567,9 +567,9 @@ void* ScanRange(void* RangePtr) {
 		char* CombBack;
 		char* Swap;
 		size_t FullSize = 0;
-		
+
 		ioctl(Sockfd, FIONREAD, &Count);
-		
+
 		while(!Done) {
 			struct timespec ReadCurrent;
 			clock_gettime(CLOCK_REALTIME, &ReadCurrent);
@@ -586,33 +586,33 @@ void* ScanRange(void* RangePtr) {
 				Buffer = malloc(Count+1);
 				BufferSize = Count+1;
 				memset(Buffer,0,Count+1);
-				
+
 				ValRead = read(Sockfd,Buffer,Count);
-				
+
 				FullSize += Count;
 				ReadCount++;
-				
+
 				if(ReadCount == 1) {
 					/* This is our first read, copy to FirstBuffer and CombFront */
-					
+
 					FirstBuffer = malloc(BufferSize);
 					memset(FirstBuffer,0,BufferSize);
 					memcpy(FirstBuffer,Buffer,BufferSize);
 
 					FirstBufferSize = BufferSize;
-					
+
 					CombFront = malloc(BufferSize);
 					CombFrontSize = BufferSize;
 					memset(CombFront,0,BufferSize);
 					memcpy(CombFront,Buffer,BufferSize);
-					
+
 					int rv = ContentLengthParser(FirstBuffer, FirstBufferSize, FullSize);	
 					if(rv == 0) {
 						Done = 1;
 					}
 				} else { /* ReadCount != 1 */
 					/* Copy CombFront and Buffer to CombBack, swap */
-					
+
 					if(ReadCount > 2) {
 						/* We have written to CombBack before, free it */
 						free(CombBack);
@@ -621,14 +621,14 @@ void* ScanRange(void* RangePtr) {
 					CombBack = malloc(CombFrontSize+Count);
 					memcpy(CombBack,CombFront,CombFrontSize-1); // Copy the front (except the null byte)
 					memcpy(CombBack+CombFrontSize-1,Buffer,BufferSize); // Copy all of buffer (with the null byte)
-					
+
 					/* Swap back and front */
 					Swap = CombBack;
 					CombBack = CombFront;
 					CombFront = Swap;
 					CombFrontSize=CombFrontSize-1+BufferSize;	
 					Swap = NULL;
-					
+
 					int rv = ContentLengthParser(CombFront, CombFrontSize, FullSize);	
 					if(rv == 0) {
 						Done = 1;
@@ -637,14 +637,14 @@ void* ScanRange(void* RangePtr) {
 			}
 			usleep(50*1000);
 		}
-		
+
 		if(TimedOut && FullSize <= 0) {
 			close(Sockfd);
 			Counter++; // skip this ip
 			continue; // go to next one
 		}
 		close(Sockfd);
-		
+
 		/* Parse response */
 
 		// Read status line out of FirstBuffer
@@ -658,7 +658,7 @@ void* ScanRange(void* RangePtr) {
 			if(ReadCount > 1) {
 				free(CombBack);
 			}
-		
+
 			free(CombFront);
 			Counter++;
 			continue;
@@ -667,10 +667,7 @@ void* ScanRange(void* RangePtr) {
 		StatusCode[3] = '\0';
 		strncpy(StatusCode,&CombFront[9],3);
 		free(FirstBuffer);
-		
-		char RedirectCode[] = "301";
 
-		int RedirectResult = strcmp(StatusCode,RedirectCode);
 		int NumStatusCode = 0;
 		NumStatusCode = atoi(StatusCode);
 		if(NumStatusCode == 0  || NumStatusCode > 599) {
@@ -681,20 +678,15 @@ void* ScanRange(void* RangePtr) {
 		clock_gettime(CLOCK_REALTIME, &ResponseTime);
 		double ResponseSeconds = (ResponseTime.tv_sec - TsStart.tv_sec) + (ResponseTime.tv_nsec - TsStart.tv_nsec) / 1e9;
 		int DoneHTTPS = 0;
-		if(RedirectResult == 0) {
+		if(NumStatusCode == 301 || NumStatusCode == 307) {
 			char ResolvedRedirectIP[16];
 			memset(ResolvedRedirectIP,0,16);
 			ResolveIP(IP, ResolvedRedirectIP);
 			
-			NumStatusCode = 301;
-			/* fprintf(stderr, "%s returned 301\n", ResolvedRedirectIP); */
 			
 			char* URL;
 			size_t URLSize = LocationParser(CombFront, CombFrontSize, &URL);
 			char* Response = NULL;
-			/* fprintf(stderr, "URL as hex: "); */
-			/* PrintHex(URL); */
-			/* fprintf(stderr,"URLSize: %lu\n",URLSize); */
 			size_t ResponseSize = 0;
 			if(URLSize > 0) {
 				/*

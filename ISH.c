@@ -67,7 +67,6 @@ int SkipReservedIPs = 0;
 int QuietMode = 0;
 double TimeOutTime = DEFAULT_TIMEOUT;
 
-#define DEFAULT_FILENAME "output.sitedata"
 char* FileName = NULL;
 FILE* FileOut;
 
@@ -862,15 +861,15 @@ int SplitRange(u32 StartIP, u32 EndIP) {
 
 void usage() {
 	fprintf(stderr,"Usage:\n");
-	fprintf(stderr,"\tish [-r] [-q] [-T <timeout time>] -s <start IP> -e <end IP> -t <thread count> [-o <output file>]\n");
+	fprintf(stderr,"\tish [-r] [-q] [-T <timeout time>] -s <start IP> -e <end IP> -t <thread count> -o <output file>\n");
 	fprintf(stderr,"Options:\n");
 	fprintf(stderr,"\t-r Skip reserved addresses\n");
 	fprintf(stderr,"\t-q Quiet mode: only print IP addresses that responded\n");
-	fprintf(stderr,"\t-T <time> Timeout time. (can be floating-point)\n");
+	fprintf(stderr,"\t-T <time> Timeout time (can be floating-point)\n");
 	fprintf(stderr,"\t-s <ip> Starting IP address\n");
 	fprintf(stderr,"\t-e <ip> End IP address\n");
 	fprintf(stderr,"\t-t <thread count> Thread count\n");
-	fprintf(stderr,"\t-o <output file> Output file (defaults to output.sitedata if not specified)\n");
+	fprintf(stderr,"\t-o <output file> Output file\n");
 	exit(1);
 }
 
@@ -1008,7 +1007,7 @@ int main(int argc, char** argv) {
 				usage();
 		}
 	}
-	if(sValue == NULL || eValue == NULL || tValue == NULL) {
+	if(sValue == NULL || eValue == NULL || tValue == NULL || oValue == NULL) {
 		usage();
 	}
 
@@ -1023,23 +1022,17 @@ int main(int argc, char** argv) {
 	} else {
 		TimeOutTime = atof(TValue);	
 	}
-	if(oValue == NULL) {
-		FileName = malloc(strlen(DEFAULT_FILENAME)+1);
-		memset(FileName,0,strlen(DEFAULT_FILENAME)+1);
-		strncpy(FileName, DEFAULT_FILENAME, strlen(DEFAULT_FILENAME));
-	} else {
-		char* c = oValue;
-		while(*c != '\0') {
-			if(*c == '/') {
-				TRACE_ERROR("Disallowed character in output filename: \'/\'");
-				return -1;
-			}
-			c++;
+	char* oc = oValue;
+	while(*oc != '\0') {
+		if(*oc == '/') {
+			TRACE_ERROR("Disallowed character in output filename: \'/\'");
+			return -1;
 		}
-		FileName = malloc(strlen(oValue)+1);
-		memset(FileName,0,strlen(oValue)+1);
-		strncpy(FileName,oValue,strlen(oValue));
+		oc++;
 	}
+	FileName = malloc(strlen(oValue)+1);
+	memset(FileName,0,strlen(oValue)+1);
+	strncpy(FileName,oValue,strlen(oValue));
 	struct stat OutputFileStat;
 	if(stat(FileName,&OutputFileStat) == 0) {
 		unlink(FileName);

@@ -59,9 +59,9 @@ struct SiteData* SiteDataArray;
 
 void usage() {
 	fprintf(stderr,"Usage:\n");
-	fprintf(stderr,"\tparser -f <input file> -o <output file>\n");
+	fprintf(stderr,"\tparser -i <input file> -o <output file>\n");
 	fprintf(stderr,"Options:\n");
-	fprintf(stderr,"\t-f <input file> Input file\n");
+	fprintf(stderr,"\t-i <input file> Input file\n");
 	fprintf(stderr,"\t-o <output file> Output file\n");
 	exit(1);
 }
@@ -178,16 +178,16 @@ int main(int argc, char** argv) {
 	if(argc < 4) {
 		usage();
 	}
-	char* fValue = NULL;
+	char* iValue = NULL;
 	char* oValue = NULL;
 
 	int c;
 	opterr = 0;
-	while((c = getopt(argc, argv, "f:o:")) != -1) {
+	while((c = getopt(argc, argv, "i:o:")) != -1) {
 		switch(c)
 		{
-			case 'f':
-				fValue = optarg;
+			case 'i':
+				iValue = optarg;
 				break;
 			case 'o':
 				oValue = optarg;
@@ -196,20 +196,20 @@ int main(int argc, char** argv) {
 				usage();
 		}
 	}
-	if(fValue == NULL || oValue == NULL) {
+	if(iValue == NULL || oValue == NULL) {
 		usage();
 	}
 
 	char* InputFileName;
 	char* OutputFileName;
-	char* fc = fValue;
+	char* ic = iValue;
 	char* oc = oValue;
-	while(*fc != '\0') {
-		if(*fc == '/') {
+	while(*ic != '\0') {
+		if(*ic == '/') {
 			TRACE_ERROR("Disallowed character in input filename: \'/\'");
 			return -1;
 		}
-		fc++;
+		ic++;
 	}
 	while(*oc != '\0') {
 		if(*oc == '/') {
@@ -218,9 +218,9 @@ int main(int argc, char** argv) {
 		}
 		oc++;
 	}
-	InputFileName = malloc(strlen(fValue)+1);
-	memset(InputFileName,0,strlen(fValue)+1);
-	strncpy(InputFileName,fValue,strlen(fValue));
+	InputFileName = malloc(strlen(iValue)+1);
+	memset(InputFileName,0,strlen(iValue)+1);
+	strncpy(InputFileName,iValue,strlen(iValue));
 
 	OutputFileName = malloc(strlen(oValue)+1);
 	memset(OutputFileName,0,strlen(oValue)+1);

@@ -586,7 +586,7 @@ void* ScanRange(void* RangePtr) {
 
 			ioctl(Sockfd, FIONREAD, &Count);
 
-			if(Count > 0) {			
+			if(Count > 0) {
 				Buffer = malloc(Count+1);
 				BufferSize = Count+1;
 				memset(Buffer,0,Count+1);

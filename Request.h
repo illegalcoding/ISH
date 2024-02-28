@@ -34,18 +34,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-struct __attribute__((packed)) HTRequestHeader {
+struct HTRequestHeader {
 	char* Field;
 	char* Value;
 };
 typedef struct HTRequestHeader HTRequestHeader;
-struct __attribute__((packed)) HTRequestLine {
+struct HTRequestLine {
 	char* Method;
 	char* URI;
 	char* Version;
 };
 typedef struct HTRequestLine HTRequestLine;
-struct __attribute__((packed)) HTRequest {
+struct HTRequest {
 	HTRequestLine RequestLine;
 	size_t NumHeaders;
 	HTRequestHeader* Headers;

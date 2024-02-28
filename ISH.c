@@ -1018,7 +1018,7 @@ int main(int argc, char** argv) {
 		QuietMode = 1;
 	}
 	if(TValue == NULL) {
-		TRACE_WARNING("No timeout specified, using default of 3 seconds.");
+		fprintf(stderr,"Warning: No timeout specified, using default of %d second(s).\n", DEFAULT_TIMEOUT);
 	} else {
 		TimeOutTime = atof(TValue);	
 	}

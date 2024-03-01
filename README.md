@@ -1,6 +1,6 @@
 # ISH
 ISH (or Internet Scanner for HTTP) scans an assigned IP range for HTTP/HTTPS web servers.
-## Usage:
+## Usage
 ```
 Usage:
     ish [-r] [-q] [-T <timeout time>] -s <start IP> -e <end IP> -t <thread count> -o <output file>

@@ -29,7 +29,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #include "Request.h"
-size_t SerializeRequest(char** Buffer, HTRequest* Request) {
+size_t SerializeRequest(char** Buffer, Request* Request) {
 	/* Calculate size of Buffer */	
 	size_t NumHeaders = Request->NumHeaders;
 	size_t RLMethodLength = strlen(Request->RequestLine.Method);
@@ -52,7 +52,7 @@ size_t SerializeRequest(char** Buffer, HTRequest* Request) {
 	/* fprintf(stderr,"AdditionalLength: %lu\n",AdditionalLength); */	
 	size_t BufferLength = RLMethodLength+RLURILength+RLVersionLength+AdditionalLength;
 	for(int i = 0; i<NumHeaders; i++) {
-		HTRequestHeader Header = Request->Headers[i];
+		RequestHeader Header = Request->Headers[i];
 		size_t FieldLength = strlen(Header.Field);
 		size_t ValueLength = strlen(Header.Value);
 		BufferLength += FieldLength;

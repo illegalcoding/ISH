@@ -682,7 +682,7 @@ void* ScanRange(void* RangePtr) {
 		clock_gettime(CLOCK_REALTIME, &ResponseTime);
 		double ResponseSeconds = (ResponseTime.tv_sec - TsStart.tv_sec) + (ResponseTime.tv_nsec - TsStart.tv_nsec) / 1e9;
 		int DoneHTTPS = 0;
-		if(NumStatusCode == 301 || NumStatusCode == 307) {
+		if(NumStatusCode == 301 || NumStatusCode == 307 || NumStatusCode == 308 || NumStatusCode == 302 || NumStatusCode == 303) {
 			char ResolvedRedirectIP[16];
 			memset(ResolvedRedirectIP,0,16);
 			ResolveIP(IP, ResolvedRedirectIP);

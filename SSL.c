@@ -152,9 +152,9 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	/* Build Request header */
 	char* RequestBuffer;
 	size_t NumHeaders = 1;
-	HTRequest* Request = malloc(sizeof(HTRequest));
-	HTRequestHeader* HostHeader = malloc(sizeof(HTRequestHeader));
-	HTRequestHeader* Headers = malloc(sizeof(HTRequestHeader)*NumHeaders);
+	HTTPRequest* Request = malloc(sizeof(HTTPRequest));
+	HTTPRequestHeader* HostHeader = malloc(sizeof(HTTPRequestHeader));
+	HTTPRequestHeader* Headers = malloc(sizeof(HTTPRequestHeader)*NumHeaders);
 	Request->NumHeaders = NumHeaders;
 	Request->RequestLine.Method = "GET";
 	Request->RequestLine.URI = "/";

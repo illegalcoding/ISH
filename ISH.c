@@ -474,9 +474,9 @@ void* ScanRange(void* RangePtr) {
 		/* Make request */
 		size_t NumHeaders = 1;
 		char* RequestBuffer;
-		HTRequest* Request = malloc(sizeof(HTRequest));
-		HTRequestHeader* Headers = malloc(sizeof(HTRequestHeader)*NumHeaders);
-		HTRequestHeader* HostHeader = malloc(sizeof(HTRequestHeader));
+		HTTPRequest* Request = malloc(sizeof(HTTPRequest));
+		HTTPRequestHeader* Headers = malloc(sizeof(HTTPRequestHeader)*NumHeaders);
+		HTTPRequestHeader* HostHeader = malloc(sizeof(HTTPRequestHeader));
 
 		Request->RequestLine.Method = "GET";
 		Request->RequestLine.URI = "/";

@@ -34,22 +34,22 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-struct HTRequestHeader {
+struct HTTPRequestHeader {
 	char* Field;
 	char* Value;
 };
-typedef struct HTRequestHeader HTRequestHeader;
-struct HTRequestLine {
+typedef struct HTTPRequestHeader HTTPRequestHeader;
+struct HTTPRequestLine {
 	char* Method;
 	char* URI;
 	char* Version;
 };
-typedef struct HTRequestLine HTRequestLine;
-struct HTRequest {
-	HTRequestLine RequestLine;
+typedef struct HTTPRequestLine HTTPRequestLine;
+struct HTTPRequest {
+	HTTPRequestLine RequestLine;
 	size_t NumHeaders;
-	HTRequestHeader* Headers;
+	HTTPRequestHeader* Headers;
 };
-typedef struct HTRequest HTRequest;
-size_t SerializeRequest(char** Buffer, HTRequest* Request);
+typedef struct HTTPRequest HTTPRequest;
+size_t SerializeRequest(char** Buffer, HTTPRequest* Request);
 #endif

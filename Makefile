@@ -1,4 +1,4 @@
-CFLAGS = -O0 -pipe -pthread -lm -lssl -lcrypto
+CFLAGS = -O2 -pipe -pthread -lm -lssl -lcrypto
 all: ISH Parser
 ISH: ISH.c
 	$(CC) $(CFLAGS) ISH.c SSL.c Shared.c Request.c -o ish

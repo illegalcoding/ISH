@@ -47,6 +47,8 @@
 #include "SSL.h"
 #include "Shared.h"
 #include "Request.h"
+#include <arpa/inet.h>
+#include <fcntl.h>
 
 u32* Starts;
 u32* Ends;
@@ -132,7 +134,6 @@ void* BlockWatchdog(void* ThreadData) {
 			}
 			AllDumped = 1;
 			WatchdogDoExit = 1;
-			fclose(FileOut);
 			break;
 		}
 		usleep(50000);
@@ -167,11 +168,7 @@ int CheckContentLengthHeader(char* Header) {
 	char* CompHdr = malloc(15+1);
 	memset(CompHdr,0,15+1);
 
-	for(int i = 0; i<15+1;i++) {
-		CompHdr[i] = tolower(Header[i]);
-	}
-
-	int rv = strcmp(GoodHeader,CompHdr);
+	int rv = strcasecmp(GoodHeader,CompHdr);
 
 	free(CompHdr);
 	return rv;
@@ -291,10 +288,7 @@ int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead) {
 int CheckLocationHeader(char* LocationHeader) {
 	char LowerCaseHeader[16];
 	memset(LowerCaseHeader,0,16);
-	for(int i = 0; i<15; i++) {
-		LowerCaseHeader[i] = tolower(LocationHeader[i]);
-	}
-	int CmpResult = strcmp(LowerCaseHeader,"location:");
+	int CmpResult = strcasecmp(LowerCaseHeader,"location:");
 	if(CmpResult == 0) {
 		return 0;
 	} else {
@@ -321,7 +315,7 @@ size_t LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 
 	if(LocationHeaderBegin == 0) {
 		free(LocationHeader);
-		return -2;
+		return 0;
 	}
 
 	/* Find CRLF after header */
@@ -339,7 +333,7 @@ size_t LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 	}
 	if(LocationHeaderEnd == 0) {
 		free(LocationHeader);
-		return -2;
+		return 0;
 	}
 	size_t LocationHeaderSize = LocationHeaderEnd-LocationHeaderBegin;
 	size_t URLSize = LocationHeaderSize-strlen("Location: ");
@@ -361,6 +355,7 @@ size_t LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 
 /* Check for reserved IPs */
 int CheckIfReservedIP(u32 IP) {
+	/* fprintf(stderr,"CheckIfReservedIP checking IP %X\n",IP); */
 	/* Check for 0.0.0.0 - 0.255.255.255 */
 	if(IP >= 0x00000000 && IP <= 0x00FFFFFF) {
 		return 1;
@@ -425,6 +420,7 @@ int CheckIfReservedIP(u32 IP) {
 	if(IP >= 0xF0000000 && IP <= 0xFFFFFFFF) {
 		return 1;
 	}
+	/* fprintf(stderr,"Not reserved\n"); */
 	return 0;
 }
 
@@ -752,11 +748,11 @@ void* ScanRange(void* RangePtr) {
 				
 				pthread_mutex_unlock(&Blocks[BlockIndex].Lock);
 				
+				free(Response);
 				Counter++;
 				continue;
 			}
 		}
-		
 		if(ReadCount > 1) {
 			free(CombBack);
 		}
@@ -873,97 +869,102 @@ void usage() {
 	exit(1);
 }
 
-u32 IPStrToNum(char* Input, int* Error) {
-	u32 IP = 0x00000000;
-
-	u8 NumBytes[4];
-
-	int ByteCounter = 0;
-
-	char* StrByte1;
-	char* StrByte2;
-	char* StrByte3;
-	char* StrByte4;
-	
-	int DotIndexes[3];
-
-	int DotCounter = 0;
-
-	int Length = strlen(Input);
-
-	for(int i = 0; i<Length; i++) {
-		if(Input[i] == '.') {
-			if(DotCounter == 3) {
-				*Error = 1;
-			}
-
-			DotIndexes[DotCounter] = i;	
-			DotCounter++;
-		}
-	}
-
-	for(int i = 0; i<=3;i++) {
-		if(i == 0) {
-			int Index = DotIndexes[i];
-			
-			u8 NumByte;
-			char StrByte[4];
-			memset(StrByte,0,4);
-			
-			strncpy(StrByte,Input,Index);
-			NumByte = atoi(StrByte);
-
-			NumBytes[ByteCounter] = NumByte;
-			ByteCounter++;
-		} else if(i != 0 && i != 3) {
-			int index = DotIndexes[i];
-			int lastindex = DotIndexes[i-1];
-			
-			u8 NumByte;
-			char StrByte[4];
-			memset(StrByte,0,4);
-	
-			int NumStrLength = index - lastindex - 1;
-			int NumStrPosition = lastindex+1;
-
-			strncpy(StrByte,&Input[NumStrPosition],NumStrLength);
-			NumByte = atoi(StrByte);
-			
-			NumBytes[ByteCounter] = NumByte;
-			ByteCounter++;
-		} else {
-			/* Copy whatever is after the last dot */
-			int LastDotIndex = DotIndexes[2];
-			
-			u8 NumByte;
-			char StrByte[4];
-			memset(StrByte,0,4);
-	
-			int NumStrLength = Length-LastDotIndex+1;
-			int NumStrPosition = LastDotIndex+1;
-
-			strncpy(StrByte,&Input[NumStrPosition],NumStrLength);
-			NumByte = atoi(StrByte);
-
-			NumBytes[ByteCounter] = NumByte;
-			ByteCounter++;
-		}
-	}
-
-	/* Asemble IP address */
-	u8 Byte1 = NumBytes[0];
-	u8 Byte2 = NumBytes[1];
-	u8 Byte3 = NumBytes[2];
-	u8 Byte4 = NumBytes[3];
-
-	u32 PaddedByte1 = Byte1<<24;	
-	u32 PaddedByte2 = Byte2<<16;	
-	u32 PaddedByte3 = Byte3<<8;	
-	u32 PaddedByte4 = Byte4;
-
-	IP = PaddedByte1|PaddedByte2|PaddedByte3|PaddedByte4;
-	return IP;
+u32 IPStrToNum(char* Input, int* Error) { 
+	struct in_addr Addr;
+	inet_pton(AF_INET,Input,&Addr);
+	return ntohl(Addr.s_addr);
 }
+	/* u32 IPStrToNum(char* Input, int* Error) { */
+/* 	u32 IP = 0x00000000; */
+
+/* 	u8 NumBytes[4]; */
+
+/* 	int ByteCounter = 0; */
+
+/* 	char* StrByte1; */
+/* 	char* StrByte2; */
+/* 	char* StrByte3; */
+/* 	char* StrByte4; */
+	
+/* 	int DotIndexes[3]; */
+
+/* 	int DotCounter = 0; */
+
+/* 	int Length = strlen(Input); */
+
+/* 	for(int i = 0; i<Length; i++) { */
+/* 		if(Input[i] == '.') { */
+/* 			if(DotCounter == 3) { */
+/* 				*Error = 1; */
+/* 			} */
+
+/* 			DotIndexes[DotCounter] = i; */	
+/* 			DotCounter++; */
+/* 		} */
+/* 	} */
+
+/* 	for(int i = 0; i<=3;i++) { */
+/* 		if(i == 0) { */
+/* 			int Index = DotIndexes[i]; */
+			
+/* 			u8 NumByte; */
+/* 			char StrByte[4]; */
+/* 			memset(StrByte,0,4); */
+			
+/* 			strncpy(StrByte,Input,Index); */
+/* 			NumByte = atoi(StrByte); */
+
+/* 			NumBytes[ByteCounter] = NumByte; */
+/* 			ByteCounter++; */
+/* 		} else if(i != 0 && i != 3) { */
+/* 			int index = DotIndexes[i]; */
+/* 			int lastindex = DotIndexes[i-1]; */
+			
+/* 			u8 NumByte; */
+/* 			char StrByte[4]; */
+/* 			memset(StrByte,0,4); */
+	
+/* 			int NumStrLength = index - lastindex - 1; */
+/* 			int NumStrPosition = lastindex+1; */
+
+/* 			strncpy(StrByte,&Input[NumStrPosition],NumStrLength); */
+/* 			NumByte = atoi(StrByte); */
+			
+/* 			NumBytes[ByteCounter] = NumByte; */
+/* 			ByteCounter++; */
+/* 		} else { */
+/* 			/1* Copy whatever is after the last dot *1/ */
+/* 			int LastDotIndex = DotIndexes[2]; */
+			
+/* 			u8 NumByte; */
+/* 			char StrByte[4]; */
+/* 			memset(StrByte,0,4); */
+	
+/* 			int NumStrLength = Length-LastDotIndex+1; */
+/* 			int NumStrPosition = LastDotIndex+1; */
+
+/* 			strncpy(StrByte,&Input[NumStrPosition],NumStrLength); */
+/* 			NumByte = atoi(StrByte); */
+
+/* 			NumBytes[ByteCounter] = NumByte; */
+/* 			ByteCounter++; */
+/* 		} */
+/* 	} */
+
+/* 	/1* Asemble IP address *1/ */
+/* 	u8 Byte1 = NumBytes[0]; */
+/* 	u8 Byte2 = NumBytes[1]; */
+/* 	u8 Byte3 = NumBytes[2]; */
+/* 	u8 Byte4 = NumBytes[3]; */
+
+/* 	u32 PaddedByte1 = Byte1<<24; */	
+/* 	u32 PaddedByte2 = Byte2<<16; */	
+/* 	u32 PaddedByte3 = Byte3<<8; */	
+/* 	u32 PaddedByte4 = Byte4; */
+
+/* 	IP = PaddedByte1|PaddedByte2|PaddedByte3|PaddedByte4; */
+/* 	return IP; */
+/* } */
 int main(int argc, char** argv) {
 	if(argc < 6) {
 		usage();

@@ -109,9 +109,11 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	Hints.ai_socktype = SOCK_STREAM;
 	Status = getaddrinfo(URLStripped,PORT_STR,&Hints,&Res);
 	if(Status != 0) {
-		/* fprintf(stderr, "getaddrinfo returned %d\n",Status); */
-		/* fprintf(stderr,"gai_strerror: %s\n",gai_strerror(Status)); */
+		fprintf(stderr, "getaddrinfo returned %d\n",Status);
+		fprintf(stderr,"gai_strerror: %s\n",gai_strerror(Status));
+		fprintf(stderr,"%s:%d SSL_free()\n",__FILE__,__LINE__);
 		SSL_free(SSL);
+		fprintf(stderr,"%s:%d SSL_CTX_free()\n",__FILE__,__LINE__);
 		SSL_CTX_free(Ctx);
 		close(Socket);
 		free(URLStripped);
@@ -142,7 +144,9 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 		}
 	}
 	if(TimedOut) {
+		fprintf(stderr,"%s:%d SSL_free()\n",__FILE__,__LINE__);
 		SSL_free(SSL);
+		fprintf(stderr,"%s:%d SSL_CTX_free()\n",__FILE__,__LINE__);
 		SSL_CTX_free(Ctx);
 		close(Socket);
 		free(URLStripped);
@@ -194,7 +198,9 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	}
 	free(RequestBuffer);
 	if(TimedOut) {
+		fprintf(stderr,"%s:%d SSL_free()\n",__FILE__,__LINE__);
 		SSL_free(SSL);
+		fprintf(stderr,"%s:%d SSL_CTX_free()\n",__FILE__,__LINE__);
 		SSL_CTX_free(Ctx);
 		close(Socket);
 		free(URLStripped);
@@ -272,14 +278,18 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 		free(CombBack);
 	}
 	if(AllRead == 0) {
+		fprintf(stderr,"%s:%d SSL_free()\n",__FILE__,__LINE__);
 		SSL_free(SSL);
+		fprintf(stderr,"%s:%d SSL_CTX_free()\n",__FILE__,__LINE__);
 		SSL_CTX_free(Ctx);
 		close(Socket);
 		free(URLStripped);
 		return NULL;	
 	}
 	
+	fprintf(stderr,"%s:%d SSL_free()\n",__FILE__,__LINE__);
 	SSL_free(SSL);
+	fprintf(stderr,"%s:%d SSL_CTX_free()\n",__FILE__,__LINE__);
 	SSL_CTX_free(Ctx);
 	close(Socket);
 	free(URLStripped);

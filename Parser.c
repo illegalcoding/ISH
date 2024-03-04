@@ -154,7 +154,7 @@ void MakeJSON() {
 			ILength = 2;
 		}
 		char IStr[ILength];
-		sprintf(IStr,"%d",i);
+		snprintf(IStr,ILength,"%d",i);
 
 		json_object* JObj = json_object_new_object();
 		json_object* JHTTPSStr = json_object_new_string(HTTPSStr);	

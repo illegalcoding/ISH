@@ -61,7 +61,6 @@ struct SiteData {
 
 struct SiteDataBlock {
 	int InUse; // 0 if free, 1 if in use
-	pthread_mutex_t Lock;
 	struct SiteData Data;
 };
 void ResolveIP(u32 ip, char* output);

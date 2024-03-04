@@ -87,6 +87,8 @@ struct IPRange {
 #define NUM_BLOCKS 100
 struct SiteDataBlock Blocks[NUM_BLOCKS]; // Create 100 Blocks
 
+pthread_mutex_t GlobalBlockLock;
+
 // Forward declarations
 void *ScanRange(void* RangePtr);
 int SplitRange(u32 StartIP, u32 EndIP);
@@ -142,13 +144,11 @@ void* BlockWatchdog(void* ThreadData) {
 }
 
 void ClearBlock(struct SiteDataBlock* Block) {
-	pthread_mutex_lock(&(Block->Lock));
-
+	pthread_mutex_lock(&GlobalBlockLock);
 	WriteData(&(Block->Data));		
 	free(Block->Data.Payload);
 	Block->InUse = 0;
-
-	pthread_mutex_unlock(&(Block->Lock));
+	pthread_mutex_unlock(&GlobalBlockLock);
 }
 
 /* Write SiteData to disk */
@@ -736,18 +736,17 @@ void* ScanRange(void* RangePtr) {
 				Site.StatusCode = NumStatusCode;
 				Site.PayloadSize = ResponseSize;
 				Site.Payload = Response;
+				pthread_mutex_lock(&GlobalBlockLock);
 				int BlockIndex = FindFreeBlockIndex();
 				while(BlockIndex == -1) {
 					BlockIndex = FindFreeBlockIndex();	
 					usleep(50000); // sleep for 50ms
 				}
-				pthread_mutex_lock(&Blocks[BlockIndex].Lock);
 				
 				Blocks[BlockIndex].Data = Site;
 				Blocks[BlockIndex].InUse = 1;
 				
-				pthread_mutex_unlock(&Blocks[BlockIndex].Lock);
-				
+				pthread_mutex_unlock(&GlobalBlockLock);
 				free(Response);
 				Counter++;
 				continue;
@@ -769,18 +768,16 @@ void* ScanRange(void* RangePtr) {
 		Site.PayloadSize = CombFrontSize;
 		Site.Payload = CombFront;
 
+		pthread_mutex_lock(&GlobalBlockLock);
 		int BlockIndex = FindFreeBlockIndex();	
 		while(BlockIndex == -1) {
 			BlockIndex = FindFreeBlockIndex();	
 			usleep(50000); // sleep for 50ms
 		}
 		
-		pthread_mutex_lock(&Blocks[BlockIndex].Lock);
-		
 		Blocks[BlockIndex].Data = Site;
 		Blocks[BlockIndex].InUse = 1;
-		
-		pthread_mutex_unlock(&Blocks[BlockIndex].Lock);
+		pthread_mutex_unlock(&GlobalBlockLock);
 		
 		Counter++;
 	}

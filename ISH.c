@@ -28,6 +28,9 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+#ifdef __GLIBC__
+#define _DEFAULT_SOURCE /* glibc sucks so it needs this */
+#endif
 #include <stdio.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -49,6 +52,7 @@
 #include "Request.h"
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <strings.h>
 
 u32* Starts;
 u32* Ends;

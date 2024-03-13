@@ -38,6 +38,6 @@ struct ScanHTTPSData {
 	uint32_t IP;
 };
 typedef struct ScanHTTPSData ScanHTTPSData;
-char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize);
+char* ScanHTTPS(char* URL, size_t URLSize, u16 Port, __out size_t* ResponseSize);
 extern int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead);
 #endif

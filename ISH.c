@@ -72,10 +72,16 @@ int ThreadsRunning = 0;
 int SkipReservedIPs = 0;
 int QuietMode = 0;
 double TimeOutTime = DEFAULT_TIMEOUT;
+u16* HTTPPorts;
+size_t NumHTTPPorts = 0;
+u16* HTTPSPorts;
+size_t NumHTTPSPorts = 0;
+unsigned int HTTPSDisabled = 0;
 
 char* FileName = NULL;
 FILE* FileOut;
 
+#define USERAGENT "ISH/2.0 github.com/illegalcoding/ISH"
 
 void SignalHandler(int SigNum) {
 	fprintf(stderr, "Signal caught, exiting...\n");
@@ -161,6 +167,7 @@ void WriteData(struct SiteData* Data) {
 	fwrite(&(Data->Magic),sizeof(u32),1,FileOut);
 	fwrite(&(Data->IsHTTPS),sizeof(u8),1,FileOut);
 	fwrite(&(Data->IP), sizeof(u32), 1, FileOut);
+	fwrite(&(Data->Port),sizeof(u16),1,FileOut);
 	fwrite(&(Data->StatusCode), sizeof(u16), 1, FileOut);  	
 	fwrite(&(Data->PayloadSize), sizeof(u64), 1, FileOut);  	
 	fwrite(Data->Payload, Data->PayloadSize, 1, FileOut);
@@ -290,14 +297,11 @@ int ContentLengthParser(char* Payload, size_t PayloadSize, size_t AllRead) {
 	return 0;
 }
 int CheckLocationHeader(char* LocationHeader) {
-	char LowerCaseHeader[16];
-	memset(LowerCaseHeader,0,16);
-	int CmpResult = strcasecmp(LowerCaseHeader,"location:");
-	if(CmpResult == 0) {
+	int CmpResult = strcasecmp(LocationHeader,"location:");
+	if(CmpResult == 0)
 		return 0;
-	} else {
+	else
 		return 1;
-	}
 }
 
 size_t LocationParser(char* Buffer, size_t BufferSize, char** Output) {
@@ -305,7 +309,6 @@ size_t LocationParser(char* Buffer, size_t BufferSize, char** Output) {
 	memset(LocationHeader,0,9+1);
 	char* LocationHeaderBegin = 0;
 	char* BufferEnd = Buffer+BufferSize;
-
 	for(int i = 0; i<BufferSize; i++) {
 		if(i+9 < BufferSize) {
 			memcpy(LocationHeader,&Buffer[i],9); /* Copy "Location:" */
@@ -427,7 +430,301 @@ int CheckIfReservedIP(u32 IP) {
 	/* fprintf(stderr,"Not reserved\n"); */
 	return 0;
 }
+static int DoHTTPS(u32 IP, char* ResolvedIP, u16 HTTPSPort, char* CombFront, size_t CombFrontSize, int ReadCount, int* DoneHTTPS) {
+	char ResolvedRedirectIP[16];
+	memset(ResolvedRedirectIP,0,16);
+	ResolveIP(IP, ResolvedRedirectIP);
+	
+	
+	char* URL;
+	size_t URLSize = LocationParser(CombFront, CombFrontSize, &URL);
+	char* Response = NULL;
+	size_t ResponseSize = 0;
+	if(URLSize > 0) {
+		/*
+			* This is a hack; LocationParser seems to accidentally include a 0D at the end of the URL.
+			* I made it copy 1 less byte to Output to "fix" this, but I didn't change the size, so we need to subtract 1.
+			*/
+		Response = ScanHTTPS(URL, URLSize-1, HTTPSPort, &ResponseSize);
+	}
+	if(Response != NULL && ResponseSize != 0) {
+		/* Parse out SiteData attributes and write them */
+		*DoneHTTPS = 1;
+		char HTTPText[5] = "HTTP\0";
+		char CmpHTTP[5];
+		CmpHTTP[4] = '\0';
+		strncpy(CmpHTTP,Response,4);
+		int HTTPCmpRes = strcmp(CmpHTTP,HTTPText);
+		if(HTTPCmpRes != 0) {
+			*DoneHTTPS = 0;
+			fprintf(stderr,"Malformed response from %s\n",ResolvedIP);
+			free(Response);
+			return -1;
+		}	
+		char StatusCode[4];
+		StatusCode[3] = '\0';
+		strncpy(StatusCode,&Response[9],3);
+		int NumStatusCode = 0;
+		NumStatusCode = atoi(StatusCode);
+		printf("%s returned %d on HTTPS (Port %u)\n",ResolvedIP,NumStatusCode,HTTPSPort);
+		if(NumStatusCode == 0  || NumStatusCode > 599) {
+			fprintf(stderr,"Malformed status code from %s\n",ResolvedIP);
+			*DoneHTTPS = 0;
+			free(Response);
+			return -1;
+		}
 
+		struct SiteData Site;
+		Site.IsHTTPS = 1;
+		Site.Magic = MAGIC;
+		Site.IP = IP;
+		Site.Port = HTTPSPort;
+		Site.StatusCode = NumStatusCode;
+		Site.PayloadSize = ResponseSize;
+		Site.Payload = Response;
+		pthread_mutex_lock(&GlobalBlockLock);
+		int BlockIndex = FindFreeBlockIndex();
+		while(BlockIndex == -1) {
+			BlockIndex = FindFreeBlockIndex();	
+			usleep(50000); // sleep for 50ms
+		}
+		
+		Blocks[BlockIndex].Data = Site;
+		Blocks[BlockIndex].InUse = 1;
+		
+		pthread_mutex_unlock(&GlobalBlockLock);
+		return 0;
+	}
+	return 0;
+}
+int SendRequest(u32 IP, char* RequestBuffer, size_t RequestLength, u16 HTTPPort, unsigned int HTTPSEnabled) {
+	struct timespec TsStart;
+	clock_gettime(CLOCK_REALTIME,&TsStart);
+
+	int Status = 0;
+	int ValRead = 0;
+	int Sockfd = 0;
+	int TimedOut = 0;
+	char ResolvedIP[16];
+	ResolveIP(IP,ResolvedIP);
+
+	/* Set up socket */
+	struct sockaddr_in ServAddr;
+
+	Sockfd = socket(AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0);
+	if(Sockfd < 0) {
+		fprintf(stderr,"Sockfd: %d\n", Sockfd);
+		TRACE_ERROR("Failed to create socket");
+		return -1;
+	}
+	struct in_addr Address;
+	Address.s_addr = htonl(IP);
+
+	ServAddr.sin_family = AF_INET;
+	ServAddr.sin_port = htons(HTTPPort);
+	ServAddr.sin_addr = Address;
+
+	Status = connect(Sockfd, (struct sockaddr*)&ServAddr, sizeof(ServAddr));
+	while(errno == EINPROGRESS || errno == EALREADY && TimedOut != 1) {
+		Status = connect(Sockfd, (struct sockaddr*)&ServAddr, sizeof(ServAddr));
+
+		struct timespec Current;
+		clock_gettime(CLOCK_REALTIME, &Current);
+		double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
+
+		if(Seconds > TimeOutTime || DoExit == 1) {
+			TimedOut = 1;
+		} 
+		usleep(1000*100);
+	}
+	if(TimedOut == 1) {
+		close(Sockfd);
+		return -1;
+	}
+
+	send(Sockfd, (void*)RequestBuffer, RequestLength, MSG_DONTWAIT);
+	while(errno == EAGAIN) {
+		send(Sockfd, (void*)RequestBuffer, RequestLength, MSG_DONTWAIT);
+
+		struct timespec SendCurrent;
+		double SecondsSpent = (SendCurrent.tv_sec - TsStart.tv_sec) + (SendCurrent.tv_nsec - TsStart.tv_nsec) / (double) 1e9;
+
+		if(SecondsSpent > TimeOutTime || DoExit == 1) {
+			TimedOut = 1;
+			break;
+		}
+		usleep(1000*50); // sleep 50ms
+	}
+
+	if(TimedOut) {
+		close(Sockfd);
+		return -1;
+	}
+
+	int Count;
+	int Done = 0;
+	int HaveRead = 0;
+
+
+	int ReadCount = 0;
+	char* FirstBuffer;
+	size_t FirstBufferSize = -1;
+	char* Buffer;
+	size_t BufferSize;
+	char* CombFront;
+	size_t CombFrontSize;
+	char* CombBack;
+	char* Swap;
+	size_t FullSize = 0;
+
+	ioctl(Sockfd, FIONREAD, &Count);
+
+	while(!Done) {
+		struct timespec ReadCurrent;
+		clock_gettime(CLOCK_REALTIME, &ReadCurrent);
+		double Seconds = (ReadCurrent.tv_sec - TsStart.tv_sec) + (ReadCurrent.tv_nsec - TsStart.tv_nsec) / 1e9;
+
+		if(Seconds > TimeOutTime || DoExit == 1) {
+			TimedOut = 1;
+			break;
+		}
+
+		ioctl(Sockfd, FIONREAD, &Count);
+
+		if(Count > 0) {
+			Buffer = malloc(Count+1);
+			BufferSize = Count+1;
+			memset(Buffer,0,Count+1);
+
+			ValRead = read(Sockfd,Buffer,Count);
+
+			FullSize += Count;
+			ReadCount++;
+
+			if(ReadCount == 1) {
+				/* This is our first read, copy to FirstBuffer and CombFront */
+
+				FirstBuffer = malloc(BufferSize);
+				memset(FirstBuffer,0,BufferSize);
+				memcpy(FirstBuffer,Buffer,BufferSize);
+
+				FirstBufferSize = BufferSize;
+
+				CombFront = malloc(BufferSize);
+				CombFrontSize = BufferSize;
+				memset(CombFront,0,BufferSize);
+				memcpy(CombFront,Buffer,BufferSize);
+
+				int rv = ContentLengthParser(FirstBuffer, FirstBufferSize, FullSize);	
+				if(rv == 0) {
+					Done = 1;
+				}
+			} else { /* ReadCount != 1 */
+				/* Copy CombFront and Buffer to CombBack, swap */
+
+				if(ReadCount > 2) {
+					/* We have written to CombBack before, free it */
+					free(CombBack);
+				}
+
+				CombBack = malloc(CombFrontSize+Count);
+				memcpy(CombBack,CombFront,CombFrontSize-1); // Copy the front (except the null byte)
+				memcpy(CombBack+CombFrontSize-1,Buffer,BufferSize); // Copy all of buffer (with the null byte)
+
+				/* Swap back and front */
+				Swap = CombBack;
+				CombBack = CombFront;
+				CombFront = Swap;
+				CombFrontSize=CombFrontSize-1+BufferSize;	
+				Swap = NULL;
+
+				int rv = ContentLengthParser(CombFront, CombFrontSize, FullSize);	
+				if(rv == 0) {
+					Done = 1;
+				}
+			}
+		}
+		usleep(50*1000);
+	}
+
+	if(TimedOut && FullSize <= 0) {
+		close(Sockfd);
+		return -1;
+	}
+	close(Sockfd);
+
+	/* Parse response */
+
+	// Read status line out of FirstBuffer
+	char HTTPText[5] = "HTTP\0";
+	char CmpHTTP[5];
+	CmpHTTP[4] = '\0';
+	strncpy(CmpHTTP,CombFront,4);
+	int HTTPCmpRes = strcmp(CmpHTTP,HTTPText);
+	if(HTTPCmpRes != 0) {
+		fprintf(stderr,"Malformed response from %s\n",ResolvedIP);
+		if(ReadCount > 1) {
+			free(CombBack);
+		}
+
+		free(CombFront);
+		return -1;
+	}	
+	char StatusCode[4];
+	StatusCode[3] = '\0';
+	strncpy(StatusCode,&CombFront[9],3);
+	fprintf(stderr,"StatusCode: %s\n",StatusCode);
+	free(FirstBuffer);
+
+	int NumStatusCode = 0;
+	NumStatusCode = atoi(StatusCode);
+	fprintf(stderr,"NumStatusCode: %d\n",NumStatusCode);
+	if(NumStatusCode == 0  || NumStatusCode > 599) {
+		fprintf(stderr,"Malformed status code from %s\n",ResolvedIP);
+	}
+	printf("%s returned %d (Port %u)\n",ResolvedIP,NumStatusCode,HTTPPort);
+	struct timespec ResponseTime;
+	clock_gettime(CLOCK_REALTIME, &ResponseTime);
+	double ResponseSeconds = (ResponseTime.tv_sec - TsStart.tv_sec) + (ResponseTime.tv_nsec - TsStart.tv_nsec) / 1e9;
+	int DoneHTTPS = 0;
+	if((NumStatusCode == 301 || NumStatusCode == 307 || NumStatusCode == 308 || NumStatusCode == 302 || NumStatusCode == 303) && HTTPSEnabled) {
+//static int DoHTTPS(u32 IP, char* ResolvedIP, u16 HTTPSPort, char* CombFront, char* CombBack, size_t CombFrontSize, int ReadCount, __out int* DoneHTTPS) {
+		for(int i = 0; i<NumHTTPSPorts; i++) {
+			u16 HTTPSPort = HTTPSPorts[i];
+			if(!QuietMode)
+				fprintf(stderr,"Trying HTTPS on %s (Port %u)\n",ResolvedIP,HTTPSPort);
+			int Result = DoHTTPS(IP,ResolvedIP,HTTPSPort,CombFront,CombFrontSize,ReadCount,&DoneHTTPS);
+		}
+	}
+	if(ReadCount > 1) {
+		free(CombBack);
+	}
+	
+	/* Write response to block */
+
+	// Populate SiteData
+	struct SiteData Site;
+	
+	Site.IsHTTPS = 0;
+	Site.Magic = MAGIC;
+	Site.IP = IP;
+	Site.Port = HTTPPort;
+	Site.StatusCode = NumStatusCode;
+	Site.PayloadSize = CombFrontSize;
+	Site.Payload = CombFront;
+
+	pthread_mutex_lock(&GlobalBlockLock);
+	int BlockIndex = FindFreeBlockIndex();	
+	while(BlockIndex == -1) {
+		BlockIndex = FindFreeBlockIndex();	
+		usleep(50000); // sleep for 50ms
+	}
+	
+	Blocks[BlockIndex].Data = Site;
+	Blocks[BlockIndex].InUse = 1;
+	pthread_mutex_unlock(&GlobalBlockLock);
+	return 0;	
+}
 void* ScanRange(void* RangePtr) {
 	ThreadsRunning++;
 
@@ -445,9 +742,13 @@ void* ScanRange(void* RangePtr) {
 	int LocalDoExit = 0;
 
 	free(RangePtr);
+	unsigned int DoHTTPS = 1;
+	if(HTTPSDisabled)
+		DoHTTPS = 0;
 
 	while(!DoExit && !LocalDoExit) {
 		u32 IP = StartIP+Counter;
+
 		if(IP > EndIP) {
 			ThreadsDone++;
 			ThreadsRunning--;
@@ -469,14 +770,13 @@ void* ScanRange(void* RangePtr) {
 
 		char ResolvedIP[16];
 		ResolveIP(IP,ResolvedIP);
-		if(!QuietMode)
-			printf("Thread %d scanning ip: %s\n", Tid, ResolvedIP);
 		/* Make request */
-		size_t NumHeaders = 1;
+		size_t NumHeaders = 2;
 		char* RequestBuffer;
 		HTTPRequest* Request = malloc(sizeof(HTTPRequest));
 		HTTPRequestHeader* Headers = malloc(sizeof(HTTPRequestHeader)*NumHeaders);
 		HTTPRequestHeader* HostHeader = malloc(sizeof(HTTPRequestHeader));
+		HTTPRequestHeader* UserAgentHeader = malloc(sizeof(HTTPRequestHeader));
 
 		Request->RequestLine.Method = "GET";
 		Request->RequestLine.URI = "/";
@@ -488,301 +788,25 @@ void* ScanRange(void* RangePtr) {
 		HostHeader->Field = "Host";
 		HostHeader->Value = ResolvedIP;
 
+		UserAgentHeader->Field = "User-Agent";
+		UserAgentHeader->Value = USERAGENT;
+
 		Request->Headers[0] = *HostHeader;
+		Request->Headers[1] = *UserAgentHeader;
 
 		size_t RequestLength = SerializeRequest(&RequestBuffer, Request);
-
+		for(int i = 0; i<NumHTTPPorts; i++) {
+			u16 HTTPPort = HTTPPorts[i];
+			if(!QuietMode)
+				printf("Thread %d scanning %s on port %u\n", Tid, ResolvedIP,HTTPPort);
+			int result = SendRequest(IP,RequestBuffer,RequestLength, HTTPPort, DoHTTPS);
+		}
 		free(Request);
 		free(Headers);
 		free(HostHeader);
-
-		/* Set up socket */
-		int Status, ValRead, Sockfd;
-		struct sockaddr_in ServAddr;
-
-		Sockfd = socket(AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0);
-		if(Sockfd < 0) {
-			fprintf(stderr,"Sockfd: %d\n", Sockfd);
-			TRACE_ERROR("Failed to create socket");
-			Counter++;
-			continue;
-		}
-		struct in_addr Address;
-		Address.s_addr = htonl(IP);
-
-		ServAddr.sin_family = AF_INET;
-		ServAddr.sin_port = htons(80);
-		ServAddr.sin_addr = Address;
-
-		Status = connect(Sockfd, (struct sockaddr*)&ServAddr, sizeof(ServAddr));
-		while(errno == EINPROGRESS || errno == EALREADY && TimedOut != 1) {
-			Status = connect(Sockfd, (struct sockaddr*)&ServAddr, sizeof(ServAddr));
-
-			struct timespec Current;
-			clock_gettime(CLOCK_REALTIME, &Current);
-			double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
-
-			if(Seconds > TimeOutTime || DoExit == 1) {
-				TimedOut = 1;
-			} 
-			usleep(1000*100);
-		}
-		if(TimedOut == 1) {
-			Counter++;
-			close(Sockfd);
-			free(RequestBuffer);
-			continue;
-		}
-
-		send(Sockfd, (void*)RequestBuffer, RequestLength, MSG_DONTWAIT);
-		while(errno == EAGAIN) {
-			send(Sockfd, (void*)RequestBuffer, RequestLength, MSG_DONTWAIT);
-
-			struct timespec SendCurrent;
-			double SecondsSpent = (SendCurrent.tv_sec - TsStart.tv_sec) + (SendCurrent.tv_nsec - TsStart.tv_nsec) / (double) 1e9;
-
-			if(SecondsSpent > TimeOutTime || DoExit == 1) {
-				TimedOut = 1;
-				break;
-			}
-			usleep(1000*50); // sleep 50ms
-		}
-
-		if(TimedOut) {
-			Counter++; // skip this ip
-			close(Sockfd);
-			free(RequestBuffer);
-			continue; // go to next ip
-		}
+		free(UserAgentHeader);
 		free(RequestBuffer);
 
-		int Count;
-		int Done = 0;
-		int HaveRead = 0;
-
-
-		int ReadCount = 0;
-		char* FirstBuffer;
-		size_t FirstBufferSize = -1;
-		char* Buffer;
-		size_t BufferSize;
-		char* CombFront;
-		size_t CombFrontSize;
-		char* CombBack;
-		char* Swap;
-		size_t FullSize = 0;
-
-		ioctl(Sockfd, FIONREAD, &Count);
-
-		while(!Done) {
-			struct timespec ReadCurrent;
-			clock_gettime(CLOCK_REALTIME, &ReadCurrent);
-			double Seconds = (ReadCurrent.tv_sec - TsStart.tv_sec) + (ReadCurrent.tv_nsec - TsStart.tv_nsec) / 1e9;
-
-			if(Seconds > TimeOutTime || DoExit == 1) {
-				TimedOut = 1;
-				break;
-			}
-
-			ioctl(Sockfd, FIONREAD, &Count);
-
-			if(Count > 0) {
-				Buffer = malloc(Count+1);
-				BufferSize = Count+1;
-				memset(Buffer,0,Count+1);
-
-				ValRead = read(Sockfd,Buffer,Count);
-
-				FullSize += Count;
-				ReadCount++;
-
-				if(ReadCount == 1) {
-					/* This is our first read, copy to FirstBuffer and CombFront */
-
-					FirstBuffer = malloc(BufferSize);
-					memset(FirstBuffer,0,BufferSize);
-					memcpy(FirstBuffer,Buffer,BufferSize);
-
-					FirstBufferSize = BufferSize;
-
-					CombFront = malloc(BufferSize);
-					CombFrontSize = BufferSize;
-					memset(CombFront,0,BufferSize);
-					memcpy(CombFront,Buffer,BufferSize);
-
-					int rv = ContentLengthParser(FirstBuffer, FirstBufferSize, FullSize);	
-					if(rv == 0) {
-						Done = 1;
-					}
-				} else { /* ReadCount != 1 */
-					/* Copy CombFront and Buffer to CombBack, swap */
-
-					if(ReadCount > 2) {
-						/* We have written to CombBack before, free it */
-						free(CombBack);
-					}
-
-					CombBack = malloc(CombFrontSize+Count);
-					memcpy(CombBack,CombFront,CombFrontSize-1); // Copy the front (except the null byte)
-					memcpy(CombBack+CombFrontSize-1,Buffer,BufferSize); // Copy all of buffer (with the null byte)
-
-					/* Swap back and front */
-					Swap = CombBack;
-					CombBack = CombFront;
-					CombFront = Swap;
-					CombFrontSize=CombFrontSize-1+BufferSize;	
-					Swap = NULL;
-
-					int rv = ContentLengthParser(CombFront, CombFrontSize, FullSize);	
-					if(rv == 0) {
-						Done = 1;
-					}
-				}
-			}
-			usleep(50*1000);
-		}
-
-		if(TimedOut && FullSize <= 0) {
-			close(Sockfd);
-			Counter++; // skip this ip
-			continue; // go to next one
-		}
-		close(Sockfd);
-
-		/* Parse response */
-
-		// Read status line out of FirstBuffer
-		char HTTPText[5] = "HTTP\0";
-		char CmpHTTP[5];
-		CmpHTTP[4] = '\0';
-		strncpy(CmpHTTP,CombFront,4);
-		int HTTPCmpRes = strcmp(CmpHTTP,HTTPText);
-		if(HTTPCmpRes != 0) {
-			fprintf(stderr,"Malformed response from %s\n",ResolvedIP);
-			if(ReadCount > 1) {
-				free(CombBack);
-			}
-
-			free(CombFront);
-			Counter++;
-			continue;
-		}	
-		char StatusCode[4];
-		StatusCode[3] = '\0';
-		strncpy(StatusCode,&CombFront[9],3);
-		free(FirstBuffer);
-
-		int NumStatusCode = 0;
-		NumStatusCode = atoi(StatusCode);
-		if(NumStatusCode == 0  || NumStatusCode > 599) {
-			fprintf(stderr,"Malformed status code from %s\n",ResolvedIP);
-		}
-		printf("%s returned %d\n",ResolvedIP,NumStatusCode);
-		struct timespec ResponseTime;
-		clock_gettime(CLOCK_REALTIME, &ResponseTime);
-		double ResponseSeconds = (ResponseTime.tv_sec - TsStart.tv_sec) + (ResponseTime.tv_nsec - TsStart.tv_nsec) / 1e9;
-		int DoneHTTPS = 0;
-		if(NumStatusCode == 301 || NumStatusCode == 307 || NumStatusCode == 308 || NumStatusCode == 302 || NumStatusCode == 303) {
-			char ResolvedRedirectIP[16];
-			memset(ResolvedRedirectIP,0,16);
-			ResolveIP(IP, ResolvedRedirectIP);
-			
-			
-			char* URL;
-			size_t URLSize = LocationParser(CombFront, CombFrontSize, &URL);
-			char* Response = NULL;
-			size_t ResponseSize = 0;
-			if(URLSize > 0) {
-				/*
-				 * This is a hack; LocationParser seems to accidentally include a 0D at the end of the URL.
-				 * I made it copy 1 less byte to Output to "fix" this, but I didn't change the size, so we need to subtract 1.
-				 */
-				Response = ScanHTTPS(URL, URLSize-1, &ResponseSize);
-			}
-			if(Response != NULL && ResponseSize != 0) {
-				/* Parse out SiteData attributes and write them */
-				DoneHTTPS = 1;
-				free(CombFront);
-				char HTTPText[5] = "HTTP\0";
-				char CmpHTTP[5];
-				CmpHTTP[4] = '\0';
-				strncpy(CmpHTTP,Response,4);
-				int HTTPCmpRes = strcmp(CmpHTTP,HTTPText);
-				if(HTTPCmpRes != 0) {
-					DoneHTTPS = 0;
-					fprintf(stderr,"Malformed response from %s\n",ResolvedIP);
-					if(ReadCount > 1) {
-						free(CombBack);
-					}
-				
-					free(Response);
-					Counter++;
-					continue;
-				}	
-				char StatusCode[4];
-				StatusCode[3] = '\0';
-				strncpy(StatusCode,&Response[9],3);
-				int NumStatusCode = 0;
-				NumStatusCode = atoi(StatusCode);
-				printf("%s returned %d on HTTPS\n",ResolvedIP,NumStatusCode);
-				if(NumStatusCode == 0  || NumStatusCode > 599) {
-					fprintf(stderr,"Malformed status code from %s\n",ResolvedIP);
-					DoneHTTPS = 0;
-					free(Response);
-					Counter++;
-					continue;
-				}
-
-				struct SiteData Site;
-				Site.IsHTTPS = 1;
-				Site.Magic = MAGIC;
-				Site.IP = IP;
-				Site.StatusCode = NumStatusCode;
-				Site.PayloadSize = ResponseSize;
-				Site.Payload = Response;
-				pthread_mutex_lock(&GlobalBlockLock);
-				int BlockIndex = FindFreeBlockIndex();
-				while(BlockIndex == -1) {
-					BlockIndex = FindFreeBlockIndex();	
-					usleep(50000); // sleep for 50ms
-				}
-				
-				Blocks[BlockIndex].Data = Site;
-				Blocks[BlockIndex].InUse = 1;
-				
-				pthread_mutex_unlock(&GlobalBlockLock);
-				free(Response);
-				Counter++;
-				continue;
-			}
-		}
-		if(ReadCount > 1) {
-			free(CombBack);
-		}
-		
-		/* Write response to block */
-
-		// Populate SiteData
-		struct SiteData Site;
-		
-		Site.IsHTTPS = 0;
-		Site.Magic = MAGIC;
-		Site.IP = IP;
-		Site.StatusCode = NumStatusCode;
-		Site.PayloadSize = CombFrontSize;
-		Site.Payload = CombFront;
-
-		pthread_mutex_lock(&GlobalBlockLock);
-		int BlockIndex = FindFreeBlockIndex();	
-		while(BlockIndex == -1) {
-			BlockIndex = FindFreeBlockIndex();	
-			usleep(50000); // sleep for 50ms
-		}
-		
-		Blocks[BlockIndex].Data = Site;
-		Blocks[BlockIndex].InUse = 1;
-		pthread_mutex_unlock(&GlobalBlockLock);
-		
 		Counter++;
 	}
 	return 0;
@@ -858,11 +882,14 @@ int SplitRange(u32 StartIP, u32 EndIP) {
 
 void usage() {
 	fprintf(stderr,"Usage:\n");
-	fprintf(stderr,"\tish [-r] [-q] [-T <timeout time>] -s <start IP> -e <end IP> -t <thread count> -o <output file>\n");
+	fprintf(stderr,"\tish [-r] [-q] [-d] [-T <timeout time>] [-P <port>] [-S <port>] -s <start IP> -e <end IP> -t <thread count> -o <output file>\n");
 	fprintf(stderr,"Options:\n");
 	fprintf(stderr,"\t-r Skip reserved addresses\n");
 	fprintf(stderr,"\t-q Quiet mode: only print IP addresses that responded\n");
+	fprintf(stderr,"\t-d Disable HTTPS\n");
 	fprintf(stderr,"\t-T <time> Timeout time (can be floating-point)\n");
+	fprintf(stderr,"\t-P <port> HTTP port(s) (comma seperated, e.g. 80,8000,8080)\n");
+	fprintf(stderr,"\t-S <port> HTTPS port(s) (comma seperated, e.g. 80,8000,8080)\n");
 	fprintf(stderr,"\t-s <ip> Starting IP address\n");
 	fprintf(stderr,"\t-e <ip> End IP address\n");
 	fprintf(stderr,"\t-t <thread count> Thread count\n");
@@ -875,6 +902,83 @@ u32 IPStrToNum(char* Input, int* Error) {
 	inet_pton(AF_INET,Input,&Addr);
 	return ntohl(Addr.s_addr);
 }
+u16* ParsePorts(char* Str, __out size_t* Length) {
+	unsigned int Ports = 1;
+	size_t StrLength = strlen(Str);
+
+	for(int i = 0; i<StrLength; i++) {
+		if(Str[i] == ',') {
+			Ports++;
+		}
+	}
+	if(Ports == 1) {
+		int PortNumber = atoi(Str);
+		if(PortNumber > 65535 || PortNumber <= 0) {
+			*Length = 0;
+			TRACE_WARNING("Invalid port number");
+			return NULL;
+		}
+		*Length = Ports;
+		u16* PortArr = malloc(sizeof(u16)*Ports);
+		PortArr[0] = PortNumber;
+		return PortArr;
+	}
+	unsigned int CommaCounter = 0;
+	unsigned int CommaIndexes[Ports-1];
+	for(int i = 0; i<StrLength; i++) {
+		if(Str[i] == ',') {
+			CommaIndexes[CommaCounter] = i;
+			CommaCounter++;
+		}
+	}
+	u16 PortArr[Ports];
+	unsigned int PortsDone = 0;
+	for(int i =0; i<Ports; i++) {
+		if(i == 0) {
+			size_t PortLen = CommaIndexes[0];
+			char Port[PortLen+1];
+			memset(Port,0,PortLen+1);
+			strncpy(Port,Str,PortLen);
+			int PortNumber = atoi(Port);
+			if(PortNumber > 65535 || PortNumber <= 0) {
+				TRACE_WARNING("Invalid port number")
+				*Length = 0;
+				return NULL;
+			}
+			PortArr[PortsDone] = (u16)PortNumber;
+			PortsDone++;
+		} else {
+			size_t PortLen = 0;
+			if(CommaCounter != i) {
+				PortLen = (CommaIndexes[i] - CommaIndexes[i-1]) - 1;
+			} else {
+				PortLen = (StrLength - CommaIndexes[i-1]) - 1;
+			}
+			if(PortLen == 0) {
+				TRACE_WARNING("uh oh")
+				*Length = 0;
+				return NULL;
+			}
+			char Port[PortLen+1];
+			memset(Port,0,PortLen+1);
+			strncpy(Port,&Str[CommaIndexes[i-1]+1],PortLen);
+			int PortNumber = atoi(Port);
+			if(PortNumber > 65535 || PortNumber <= 0) {
+				TRACE_WARNING("Invalid port number")
+				*Length = 0;
+				return NULL;
+			}
+			PortArr[PortsDone] = (u16)PortNumber;
+			PortsDone++;
+		}
+	}
+	u16* AllPorts = malloc(sizeof(u16)*PortsDone);
+	for(int i = 0; i<PortsDone; i++) {
+		AllPorts[i] = PortArr[i];
+	}
+	*Length = PortsDone;
+	return AllPorts;
+}
 int main(int argc, char** argv) {
 	if(argc < 6) {
 		usage();
@@ -885,12 +989,14 @@ int main(int argc, char** argv) {
 	char* tValue = NULL; /* (t)hread count */
 	char* TValue = NULL; /* (T)imeout */
 	char* oValue = NULL; /* (o)utput file */
+	char* PValue = NULL; /* HTTP (P)ort */
+	char* SValue = NULL; /* HTTP(S) port */
 	int rFlag = 0; /* Skip (r)eserved IPs flag */
 	int qFlag = 0; /* (q)uiet mode (don't print every IP we're scanning) */
-
+	int dFlag = 0; /* (d)isable HTTPS */
 	int c;
 	opterr = 0;
-	while((c = getopt(argc, argv, "rqs:e:t:T:o:")) != -1) {
+	while((c = getopt(argc, argv, "rqds:e:t:T:o:P:S:")) != -1) {
 		switch(c)
 		{
 			case 'r':
@@ -898,6 +1004,9 @@ int main(int argc, char** argv) {
 				break;
 			case 'q':
 				qFlag = 1;
+				break;
+			case 'd':
+				dFlag = 1;
 				break;
 			case 's':
 				sValue = optarg;
@@ -914,6 +1023,12 @@ int main(int argc, char** argv) {
 			case 'o':
 				oValue = optarg;
 				break;
+			case 'P':
+				PValue = optarg;
+				break;
+			case 'S':
+				SValue = optarg;
+				break;
 			default:
 				usage();
 		}
@@ -928,10 +1043,35 @@ int main(int argc, char** argv) {
 	if(qFlag == 1) {
 		QuietMode = 1;
 	}
+	if(dFlag == 1) {
+		HTTPSDisabled = 1;
+	}
 	if(TValue == NULL) {
 		fprintf(stderr,"Warning: No timeout specified, using default of %d second(s).\n", DEFAULT_TIMEOUT);
 	} else {
 		TimeOutTime = atof(TValue);	
+	}
+	if(PValue != NULL) {
+		HTTPPorts = ParsePorts(PValue, &NumHTTPPorts);
+		if(HTTPPorts == NULL) {
+			return -1;
+		}
+	}
+	if(SValue != NULL) {
+		HTTPSPorts = ParsePorts(SValue, &NumHTTPSPorts);
+		if(HTTPSPorts == NULL) {
+			return -1;
+		}
+	}
+	if(PValue == NULL) {
+		HTTPPorts = malloc(sizeof(u16));
+		HTTPPorts[0] = 80;
+		NumHTTPPorts = 1;
+	}
+	if(SValue == NULL) {
+		HTTPSPorts = malloc(sizeof(u16));
+		HTTPSPorts[0] = 443;
+		NumHTTPSPorts = 1;
 	}
 	char* oc = oValue;
 	while(*oc != '\0') {
@@ -1055,6 +1195,8 @@ int main(int argc, char** argv) {
 	DoExit = 1;
 	pthread_join(WatchdogThread, NULL);
 	free(FileName);
+	free(HTTPPorts);
+	free(HTTPSPorts);
 	
 	return 0;
 }

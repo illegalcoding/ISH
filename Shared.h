@@ -50,10 +50,20 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
+#define MAGIC_OFFSET 0
+#define HTTPS_OFFSET 4
+#define IP_OFFSET 5
+#define PORT_OFFSET 9
+#define STATUS_OFFSET 11
+#define PAYLOAD_SIZE_OFFSET 13
+#define PAYLOAD_OFFSET 21
+#define __out
+
 struct SiteData {
 	u32 Magic;
 	u8 IsHTTPS;
 	u32 IP;
+	u16 Port;
 	u16 StatusCode;
 	u64 PayloadSize;
 	char* Payload;

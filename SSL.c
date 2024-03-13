@@ -52,10 +52,8 @@
 
 static int DoExit = 0;
 extern double TimeOutTime;
-#define PORT 443
-#define PORT_STR "443"
 
-char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
+char* ScanHTTPS(char* URL, size_t URLSize, u16 Port, __out size_t* ResponseSize) {
 	struct timespec TsStart;
 	clock_gettime(CLOCK_REALTIME,&TsStart);
 	char* URLStripped = malloc(URLSize-8+1); /* URLSize-strlen("https://") */
@@ -103,14 +101,17 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	struct sockaddr_in Addr;
 	int Socket = socket(AF_INET,SOCK_STREAM|SOCK_NONBLOCK,0);
 	Addr.sin_family = AF_INET;
-	Addr.sin_port = htons(PORT);
+	Addr.sin_port = htons(Port);
 
 	struct addrinfo Hints;
 	struct addrinfo* Res;
 	memset(&Hints,0,sizeof(Hints));
 	Hints.ai_family = AF_INET;
 	Hints.ai_socktype = SOCK_STREAM;
-	Status = getaddrinfo(URLStripped,PORT_STR,&Hints,&Res);
+	char PortStr[6];
+	memset(PortStr,0,6);
+	snprintf(PortStr,5,"%d",Port);
+	Status = getaddrinfo(URLStripped,PortStr,&Hints,&Res);
 	if(Status != 0) {
 		fprintf(stderr, "getaddrinfo returned %d\n",Status);
 		fprintf(stderr,"gai_strerror: %s\n",gai_strerror(Status));
@@ -131,11 +132,10 @@ char* ScanHTTPS(char* URL, size_t URLSize, size_t* ResponseSize) {
 	Status = SSL_connect(SSL);
 	if(Status != 1) {
 		int err = SSL_get_error(SSL,Status);
-		while(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+		while(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE && !TimedOut) {
 			struct timespec Current;
 			clock_gettime(CLOCK_REALTIME, &Current);
 			double Seconds = (Current.tv_sec - TsStart.tv_sec) + (Current.tv_nsec - TsStart.tv_nsec) / 1e9;
-
 			if(Seconds > TimeOutTime || DoExit == 1) {
 				TimedOut = 1;
 			} 

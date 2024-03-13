@@ -39,12 +39,6 @@
 #include <json-c/json.h>
 #include "Shared.h"
 
-#define MAGIC_OFFSET 0
-#define HTTPS_OFFSET 4
-#define IP_OFFSET 5
-#define STATUS_OFFSET 9
-#define PAYLOAD_SIZE_OFFSET 11
-#define PAYLOAD_OFFSET 19
 
 void FindMagic(u8* StartBuffer, u8* EndBuffer);
 void FillData();
@@ -87,7 +81,8 @@ void FillData() {
 	for(int i = 0; i<PointerCounter; i++) {
 		u32 Magic;
 		u8 IsHTTPS;
-		u32 ip;
+		u32 IP;
+		u16 Port;
 		u16 StatusCode;
 		u64 PayloadSize;
 		char* Payload;
@@ -96,18 +91,19 @@ void FillData() {
 
 		memcpy(&Magic,Magicptr+MAGIC_OFFSET,sizeof(u32));
 		memcpy(&IsHTTPS,Magicptr+HTTPS_OFFSET,sizeof(u8));
-		memcpy(&ip,Magicptr+IP_OFFSET,sizeof(u32));
+		memcpy(&IP,Magicptr+IP_OFFSET,sizeof(u32));
+		memcpy(&Port,Magicptr+PORT_OFFSET,sizeof(u16));
 		memcpy(&StatusCode,Magicptr+STATUS_OFFSET,sizeof(u16));
 		memcpy(&PayloadSize,Magicptr+PAYLOAD_SIZE_OFFSET,sizeof(u64));
 		
 		Payload = malloc(PayloadSize*sizeof(char));	
 		memcpy(Payload,Magicptr+PAYLOAD_OFFSET,PayloadSize);
-		
 		// create and populate struct
 		struct SiteData Site;
 		Site.Magic = Magic;
 		Site.IsHTTPS = IsHTTPS;
-		Site.IP = ip;
+		Site.IP = IP;
+		Site.Port = Port;
 		Site.StatusCode = StatusCode;
 		Site.PayloadSize = PayloadSize;
 		Site.Payload = Payload;
@@ -130,6 +126,7 @@ void MakeJSON() {
 		u32 Magic = Site.Magic;
 		u8 IsHTTPS = Site.IsHTTPS;
 		u32 IP = Site.IP;
+		u16 Port = Site.Port;
 		u16 StatusCode = Site.StatusCode;
 		u64 PayloadSize = Site.PayloadSize;
 		char* Payload = Site.Payload;
@@ -142,10 +139,15 @@ void MakeJSON() {
 		char IPStr[16];
 		memset(IPStr,0,16);
 		ResolveIP(IP,IPStr);	
-	
+
+		char PortStr[6];
+		memset(PortStr,0,6);
+		snprintf(PortStr,6,"%d",Port);
+
 		char StatusStr[4];
 		memset(StatusStr,0,4);
-		sprintf(StatusStr,"%d",StatusCode);
+		snprintf(StatusStr,4,"%d",StatusCode);
+
 		
 		int ILength = 0;
 		if(i != 0 && i != 1) {
@@ -159,6 +161,7 @@ void MakeJSON() {
 		json_object* JObj = json_object_new_object();
 		json_object* JHTTPSStr = json_object_new_string(HTTPSStr);	
 		json_object* JIPStr = json_object_new_string(IPStr);
+		json_object* JPortStr = json_object_new_string(PortStr);
 		json_object* JStatusStr = json_object_new_string(StatusStr);
 		json_object* JPayload = json_object_new_string(Payload);
 	
@@ -168,6 +171,7 @@ void MakeJSON() {
 		/* json_object_array_add(JArray, JPayload); */
 		json_object_object_add(JObj,"Protocol", JHTTPSStr);
 		json_object_object_add(JObj,"IP", JIPStr);
+		json_object_object_add(JObj,"Port", JPortStr);
 		json_object_object_add(JObj,"StatusCode", JStatusStr);
 		json_object_object_add(JObj,"Payload", JPayload);
 		json_object_array_add(JArray, JObj);

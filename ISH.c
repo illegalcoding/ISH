@@ -673,12 +673,10 @@ int SendRequest(u32 IP, char* RequestBuffer, size_t RequestLength, u16 HTTPPort,
 	char StatusCode[4];
 	StatusCode[3] = '\0';
 	strncpy(StatusCode,&CombFront[9],3);
-	fprintf(stderr,"StatusCode: %s\n",StatusCode);
 	free(FirstBuffer);
 
 	int NumStatusCode = 0;
 	NumStatusCode = atoi(StatusCode);
-	fprintf(stderr,"NumStatusCode: %d\n",NumStatusCode);
 	if(NumStatusCode == 0  || NumStatusCode > 599) {
 		fprintf(stderr,"Malformed status code from %s\n",ResolvedIP);
 	}

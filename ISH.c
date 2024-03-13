@@ -1182,7 +1182,7 @@ int main(int argc, char** argv) {
 	free(Ends);
 	
 	while(((ThreadsDone < ThreadsPossible)) && ThreadsRunning != 0 && (DoExit != 1)) {
-		fprintf(stderr, "Threads done: %d, Threads running: %d\n", ThreadsDone, ThreadsRunning);
+		// fprintf(stderr, "Threads done: %d, Threads running: %d\n", ThreadsDone, ThreadsRunning);
 		sleep(1); // sleep 1s
 	}
 

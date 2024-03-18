@@ -547,6 +547,7 @@ int SendRequest(u32 IP, char* RequestBuffer, size_t RequestLength, u16 HTTPPort,
 		send(Sockfd, (void*)RequestBuffer, RequestLength, MSG_DONTWAIT);
 
 		struct timespec SendCurrent;
+		clock_gettime(CLOCK_REALTIME,&SendCurrent);
 		double SecondsSpent = (SendCurrent.tv_sec - TsStart.tv_sec) + (SendCurrent.tv_nsec - TsStart.tv_nsec) / (double) 1e9;
 
 		if(SecondsSpent > TimeOutTime || DoExit == 1) {

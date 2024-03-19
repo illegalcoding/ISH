@@ -110,7 +110,7 @@ char* ScanHTTPS(char* URL, size_t URLSize, u16 Port, __out size_t* ResponseSize)
 	Hints.ai_socktype = SOCK_STREAM;
 	char PortStr[6];
 	memset(PortStr,0,6);
-	snprintf(PortStr,5,"%d",Port);
+	snprintf(PortStr,6,"%d",Port);
 	Status = getaddrinfo(URLStripped,PortStr,&Hints,&Res);
 	if(Status != 0) {
 		fprintf(stderr, "getaddrinfo returned %d\n",Status);
